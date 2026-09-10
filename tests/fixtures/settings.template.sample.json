@@ -1,0 +1,8 @@
+{
+  "permissions": { "defaultMode": "auto" },
+  "model": "fable",
+  "statusLine": { "type": "command", "command": "node \"$HOME/.claude/statusline.mjs\"" },
+  "askUserQuestionTimeout": "never",
+  "tui": "fullscreen",
+  "theme": "auto"
+}
