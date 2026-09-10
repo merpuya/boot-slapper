@@ -9,7 +9,7 @@ import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
 import { defaultAccount, selectStore, type SecretService } from "./engine/secrets/store.ts";
 import { aca34 } from "./profiles/aca34.ts";
-import { headlessReporter, renderChecksText, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
+import { doctorSummary, headlessReporter, renderChecksText, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
 import { headlessPrompter, ttyPrompter } from "./ui/prompt.ts";
 
 const PROFILES: Record<string, Profile> = { aca34 };
@@ -74,7 +74,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       stdout.write(renderPlanText(plan).trimEnd());
       if (interactive && !(await ctx.prompt.confirm("Apply this plan?"))) { stdout.write("aborted"); await log.done(); return 3; }
       const res = await applyPlan(plan, ctx);
-      stdout.write(renderChecksText(res.checks).trimEnd());
+      stdout.write(doctorSummary(res.checks));
       stdout.write(`==> run log: ${log.path}`);
       await log.done();
       return res.failed.length || worstStatus(res.checks) === "error" ? 1 : 0;

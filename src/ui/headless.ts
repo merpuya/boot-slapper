@@ -8,6 +8,7 @@ export interface Sink { write(line: string): void }
 const ICON = { ok: "✓", warn: "!", error: "✗" } as const;
 
 export function headlessReporter(sink: Sink): (e: EngineEvent) => void {
+  let checkGroup: string | null = null;
   return (e) => {
     switch (e.type) {
       case "artifact:detected": sink.write(`==> ${e.id}: ${e.state.kind}${"details" in e.state && e.state.details?.length ? " — " + e.state.details.join("; ") : e.state.kind === "blocked" ? " — " + e.state.reason : ""}`); break;
@@ -15,7 +16,9 @@ export function headlessReporter(sink: Sink): (e: EngineEvent) => void {
       case "step:start": sink.write(`    … ${e.step.title}`); break;
       case "step:done": sink.write(e.ok ? `    ✓ ${e.step.title}` : `    ✗ ${e.step.title} — ${e.error ?? "failed"}`); break;
       case "prompt:needed": sink.write(`    ? ${e.step.title}`); break;
-      case "check:result": sink.write(`    ${ICON[e.check.status]} ${e.check.message}`); break;
+      case "check:result":
+        if (e.artifact !== checkGroup) { checkGroup = e.artifact; sink.write(`==> ${e.artifact}`); }
+        sink.write(`    ${ICON[e.check.status]} ${e.check.message}`); break;
       case "note": sink.write(`    ${e.level === "info" ? "·" : ICON[e.level]} ${e.message}`); break;
     }
   };
@@ -29,10 +32,7 @@ export function runLogWriter(io: Io, dir: string, startedAt: Date) {
   return {
     path: file,
     emit(e: EngineEvent) {
-      chain = chain.then(async () => {
-        const prev = (await io.readFile(file)) ?? "";
-        await io.writeFile(file, prev + JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n", { mode: 0o600 });
-      });
+      chain = chain.then(() => io.appendFile(file, JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n", { mode: 0o600 }));
     },
     done: () => chain,
   };
@@ -48,13 +48,17 @@ export function renderPlanText(plan: Plan): string {
   return lines.join("\n") + "\n";
 }
 
+export function doctorSummary(checks: Record<string, Check[]>): string {
+  const failures = Object.values(checks).flat().filter((c) => c.status === "error").length;
+  return failures ? `==> Doctor: ${failures} check(s) FAILED` : "==> Doctor: all checks passed";
+}
+
 export function renderChecksText(checks: Record<string, Check[]>): string {
   const lines: string[] = [];
-  let failures = 0;
   for (const [id, cs] of Object.entries(checks)) {
     lines.push(`==> ${id}`);
-    for (const c of cs) { lines.push(`    ${ICON[c.status]} ${c.message}`); if (c.status === "error") failures++; }
+    for (const c of cs) lines.push(`    ${ICON[c.status]} ${c.message}`);
   }
-  lines.push(failures ? `==> Doctor: ${failures} check(s) FAILED` : "==> Doctor: all checks passed");
+  lines.push(doctorSummary(checks));
   return lines.join("\n") + "\n";
 }

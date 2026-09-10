@@ -16,6 +16,7 @@ export async function makeCtx(init: FakeInit & { provider?: Provider; surface?: 
     env, io, secrets: selectStore(env, io), interactive, opts: init.opts ?? {},
     prompt: {
       secret: async (label) => { if (!interactive) throw new InteractiveRequired(label); return init.answers?.[label] ?? ""; },
+      text: async (label, fallback) => { if (!interactive) throw new InteractiveRequired(label); return init.answers?.[label] ?? fallback ?? ""; },
       confirm: async () => true,
       gate: async () => {},
     },

@@ -18,6 +18,7 @@ describe("headlessReporter", () => {
       "    … git pull --ff-only",
       "    ✓ git pull --ff-only",
       "    ✗ boom — exit 1",
+      "==> prereqs",
       "    ✓ prereq: git",
       "    ! claude not found",
       '==> gateway-launch: skipped — requires "secrets" which failed',

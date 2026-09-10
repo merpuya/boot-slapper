@@ -6,14 +6,14 @@ export { resolvePlan } from "./plan.ts";
 export interface RunResult { applied: string[]; failed: string[]; skipped: string[]; unchanged: string[]; checks: Record<string, Check[]> }
 
 async function safeVerify(artifact: Artifact, c: Ctx, emit: Ctx["emit"]): Promise<Check[]> {
-  try {
-    return await artifact.verify(c);
-  } catch (e) {
+  let checks: Check[];
+  try { checks = await artifact.verify(c); }
+  catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    const check: Check = { id: "verify", status: "error", message: `verify threw: ${error}` };
-    emit({ type: "check:result", artifact: artifact.id, check });
-    return [check];
+    checks = [{ id: "verify", status: "error", message: `verify threw: ${error}` }];
   }
+  for (const check of checks) emit({ type: "check:result", artifact: artifact.id, check });
+  return checks;
 }
 
 export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
@@ -23,7 +23,7 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
 
   for (const entry of plan) {
     const { artifact, state } = entry;
-    const c = withOpts(ctx, (ctx.opts as Record<string, Record<string, unknown>>)[artifact.id]);
+    const c = withOpts(ctx, entry.opts);
     if (state.kind === "blocked") {
       bad.set(artifact.id, "blocked");
       ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: `blocked: ${state.reason}` });
@@ -73,7 +73,7 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
     } else res.unchanged.push(artifact.id);
   }
   for (const entry of plan) {
-    const c = withOpts(ctx, (ctx.opts as Record<string, Record<string, unknown>>)[entry.artifact.id]);
+    const c = withOpts(ctx, entry.opts);
     const checks = await safeVerify(entry.artifact, c, ctx.emit);
     res.checks[entry.artifact.id] = checks;
   }

@@ -16,6 +16,7 @@ async function makeCtx(interactive = false): Promise<{ ctx: Ctx; events: EngineE
     env, io, secrets: selectStore(env, io), interactive, opts: {},
     prompt: {
       secret: async (l) => { if (!interactive) throw new InteractiveRequired(l); return "v"; },
+      text: async (l) => { if (!interactive) throw new InteractiveRequired(l); return "v"; },
       confirm: async () => true, gate: async () => {},
     },
     emit: (e) => events.push(e),
@@ -161,6 +162,25 @@ describe("applyPlan", () => {
     expect(applied).toEqual(["b.do"]);
     expect(res.applied).toEqual(["b"]);
     expect(events).toContainEqual({ type: "note", level: "warn", message: 'b: requires "a", which is not in this plan (--only/--skip) — proceeding anyway' });
+  });
+  it("hands each artifact its own profile options via PlanEntry.opts, not ctx.opts", async () => {
+    const { ctx } = await makeCtx();
+    const seen: unknown[] = [];
+    const a: Artifact = { ...art("a", { absent: true }), apply: async (c) => { seen.push(c.opts); }, verify: async (c) => { seen.push(c.opts); return []; } };
+    const p: Profile = { ...profile([a]), options: { a: { flag: 1 } } };
+    const plan = await resolvePlan(p, ctx);
+    expect(plan[0].opts).toEqual({ flag: 1 });
+    await applyPlan(plan, { ...ctx, opts: {} });
+    expect(seen).toEqual([{ flag: 1 }, { flag: 1 }]);
+  });
+  it("emits one check:result per check from verify, in both drivers", async () => {
+    const { ctx, events } = await makeCtx();
+    const a = art("a", {});
+    await applyPlan(await resolvePlan(profile([a]), ctx), ctx);
+    expect(events.filter((e) => e.type === "check:result")).toEqual([{ type: "check:result", artifact: "a", check: { id: "a.ok", status: "ok", message: "fine" } }]);
+    events.length = 0;
+    await verifyAll(profile([a]), ctx);
+    expect(events.filter((e) => e.type === "check:result")).toHaveLength(1);
   });
 });
 
