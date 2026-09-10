@@ -1,6 +1,6 @@
-import path from "node:path";
 import type { Check } from "../engine/artifact.ts";
 import type { EngineEvent } from "../engine/events.ts";
+import { pj, toOs } from "../engine/env.ts";
 import type { Io } from "../engine/io.ts";
 import type { Plan } from "../engine/plan.ts";
 
@@ -23,7 +23,8 @@ export function headlessReporter(sink: Sink): (e: EngineEvent) => void {
 
 export function runLogWriter(io: Io, dir: string, startedAt: Date) {
   const stamp = startedAt.toISOString().replace(/\.\d{3}Z$/, "Z").replace(/:/g, "-");
-  const file = path.join(dir, `${stamp}.jsonl`);
+  // Join with the Io's platform, not the host's — a fake Io on a Windows runner still uses posix paths.
+  const file = pj(toOs(io.platform), dir, `${stamp}.jsonl`);
   let chain: Promise<void> = io.mkdirp(dir, { mode: 0o700 });
   return {
     path: file,

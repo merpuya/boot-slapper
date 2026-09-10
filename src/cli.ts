@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { InteractiveRequired, type Ctx } from "./engine/artifact.ts";
-import { probeEnv, resolveEnv } from "./engine/env.ts";
+import { pj, probeEnv, resolveEnv, toOs } from "./engine/env.ts";
 import type { EngineEvent } from "./engine/events.ts";
 import { RealIo, type Io } from "./engine/io.ts";
 import type { Profile } from "./engine/profile.ts";
@@ -67,7 +66,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
     case "onboard": {
       const startedAt = new Date();
       const home = io.home;
-      const log = runLogWriter(io, path.join(home, ".config", "boot-slapper", "runs"), startedAt);
+      const log = runLogWriter(io, pj(toOs(io.platform), home, ".config", "boot-slapper", "runs"), startedAt);
       const report = headlessReporter(stdout);
       const ctx = await buildCtx(io, profile, interactive, (e) => { report(e); log.emit(e); });
       stdout.write(`==> boot-slapper onboard — profile ${profile.name} on ${ctx.env.label} (${ctx.env.os}, ${ctx.env.provider}${interactive ? "" : ", --auto"})`);
