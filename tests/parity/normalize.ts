@@ -9,6 +9,7 @@ export const PARITY_MAP: Array<{ id: string; bash: RegExp }> = [
   { id: "project-memory.device-config", bash: /(?:device config exists: devices\/|no device config for)/ },
   { id: "project-memory.resolves", bash: /sync-memory list (?:resolves|failed)/ },
   { id: "project-memory.coverage", bash: /(?:memory dir\(s\) on this device are mapped|memory dirs are NOT synced|maps NOTHING but memory dirs exist)/ },
+  { id: "mct.status", bash: /(?:no me-count-token checkout|mct checkout present but dist\/ not built|mct built but not activated|mct activated but node|mct doctor (?:passes|reports problems))/ },
 ];
 const ICONS: Record<string, Status> = { "✓": "ok", "!": "warn", "✗": "error" };
 
