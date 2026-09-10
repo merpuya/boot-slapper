@@ -48,6 +48,12 @@ export function withOpts(ctx: Ctx, opts: Record<string, unknown> | undefined): C
 
 /** Kahn's algorithm; peers keep declaration order so plans are stable. */
 export function resolveOrder(artifacts: Artifact[]): Artifact[] {
+  // Check for duplicate IDs before building dependency graph
+  const seen = new Set<string>();
+  for (const a of artifacts) {
+    if (seen.has(a.id)) throw new Error(`duplicate artifact id "${a.id}"`);
+    seen.add(a.id);
+  }
   const byId = new Map(artifacts.map((a) => [a.id, a]));
   for (const a of artifacts) for (const r of a.requires) {
     if (!byId.has(r)) throw new Error(`artifact "${a.id}" requires unknown artifact "${r}"`);

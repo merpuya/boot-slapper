@@ -20,4 +20,7 @@ describe("resolveOrder", () => {
   it("throws on an unknown requirement", () => {
     expect(() => resolveOrder([stub("a", ["ghost"])])).toThrow(/unknown artifact "ghost"/);
   });
+  it("throws on a duplicate artifact id", () => {
+    expect(() => resolveOrder([stub("a"), stub("b"), stub("a")])).toThrow(/duplicate artifact id "a"/);
+  });
 });
