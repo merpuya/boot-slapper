@@ -4,7 +4,7 @@ import { homedir, hostname, platform as osPlatform } from "node:os";
 import path from "node:path";
 
 export interface ExecResult { code: number; stdout: string; stderr: string }
-export interface ExecOpts { stdin?: string; cwd?: string; env?: Record<string, string> }
+export interface ExecOpts { stdin?: string; cwd?: string; env?: Record<string, string>; timeout?: number }
 
 export interface Io {
   readonly env: Record<string, string | undefined>;
@@ -59,10 +59,22 @@ export class RealIo implements Io {
         windowsHide: true,
       });
       let stdout = "", stderr = "";
+      let timedOut = false;
+      let timer: NodeJS.Timeout | undefined;
+      if (opts.timeout !== undefined) {
+        timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, opts.timeout);
+      }
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
       child.stdout.on("data", (d) => (stdout += d));
       child.stderr.on("data", (d) => (stderr += d));
-      child.on("error", (e) => resolve({ code: 127, stdout, stderr: stderr + String(e) }));
-      child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+      child.stdin.on("error", () => {});
+      child.on("error", (e) => { if (timer) clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr + String(e) }); });
+      child.on("close", (code) => {
+        if (timer) clearTimeout(timer);
+        if (timedOut) { resolve({ code: 124, stdout, stderr: stderr + "\n[timeout]" }); return; }
+        resolve({ code: code ?? 1, stdout, stderr });
+      });
       if (opts.stdin !== undefined) child.stdin.write(opts.stdin);
       child.stdin.end();
     });

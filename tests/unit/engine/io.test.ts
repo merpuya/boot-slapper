@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FakeIo } from "../../../src/engine/io.ts";
+import { FakeIo, RealIo } from "../../../src/engine/io.ts";
 
 describe("FakeIo", () => {
   it("reads and writes files in memory and records writes", async () => {
@@ -40,5 +40,23 @@ describe("FakeIo", () => {
     const io = new FakeIo({ path: { git: "/usr/bin/git" } });
     expect(await io.which("git")).toBe("/usr/bin/git");
     expect(await io.which("jq")).toBeNull();
+  });
+});
+
+describe("RealIo.exec", () => {
+  it("kills a hung child on timeout and resolves code 124 instead of hanging", async () => {
+    const io = new RealIo();
+    const start = Date.now();
+    const r = await io.exec("node", ["-e", "setTimeout(() => {}, 10000)"], { timeout: 200 });
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(r.code).toBe(124);
+    expect(r.stderr).toContain("[timeout]");
+  });
+  it("does not crash the process when the child exits before stdin is fully written", async () => {
+    const io = new RealIo();
+    // the child exits immediately without reading stdin; writing a stdin payload after that
+    // can raise EPIPE on the stdin stream — exec() must swallow it, not crash the test runner.
+    const r = await io.exec("node", ["-e", "process.exit(0)"], { stdin: "x".repeat(1_000_000) });
+    expect(r.code).toBe(0);
   });
 });
