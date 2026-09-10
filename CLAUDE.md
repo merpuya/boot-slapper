@@ -2,6 +2,7 @@
 
 Cross-platform onboarding for Claude Code against a third-party provider. Design: `docs/superpowers/specs/2026-09-09-boot-slapper-design.md`.
 Plans: `docs/superpowers/plans/` (Phase 1 engine, Phase 2 artifacts + TUI + capture + shims; Phase 3 desktop + cutover pending).
+Spikes: `docs/spikes/` — S1/S2 (2026-09-10) settle where the Phase 3 desktop artifacts write: the per-user `Claude-3p/configLibrary/` document (inference + `managedMcpServers`), never user defaults or `claude_desktop_config.json`.
 
 ## Commands
 
