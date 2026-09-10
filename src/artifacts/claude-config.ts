@@ -1,6 +1,6 @@
 import type { Artifact, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { pj } from "../engine/env.ts";
-import type { Io } from "../engine/io.ts";
+import type { ExecOpts, Io } from "../engine/io.ts";
 import { deepEqual, renderHooks, seedSettings, stableJson, type HooksBlock } from "../engine/settings.ts";
 
 interface Opts { sshUrl: string; httpsUrl: string }
@@ -23,7 +23,8 @@ export async function cloneUrl(io: Io, ssh: string, https: string): Promise<stri
   return /successfully authenticated/.test(r.stdout + r.stderr) ? ssh : https;
 }
 
-const git = (io: Io, dir: string, ...args: string[]) => io.exec("git", ["-C", dir, ...args]);
+const git = (io: Io, dir: string, args: string[], opts: ExecOpts = {}) =>
+  io.exec("git", ["-C", dir, ...args], { ...opts, env: { GIT_TERMINAL_PROMPT: "0", ...opts.env } });
 
 async function readJsonOrNull(io: Io, p: string): Promise<Record<string, unknown> | null | "invalid"> {
   const s = await io.readFile(p);
@@ -54,7 +55,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
   if (f.exists) {
     f.checkout = await isCheckout(io, dir);
     if (f.checkout) {
-      const st = await git(io, dir, "status", "--porcelain");
+      const st = await git(io, dir, ["status", "--porcelain"]);
       for (const line of st.stdout.split(/\r?\n/)) {
         if (!line) continue;
         const code = line.slice(0, 2);
@@ -62,10 +63,10 @@ async function facts(ctx: Ctx): Promise<Facts> {
         const file = line.slice(3).split(" -> ").pop()!;             // renames: report the new name
         if (code.includes("D")) f.deleted.push(file); else if (code.trim()) f.modified.push(file);
       }
-      const head = (await git(io, dir, "rev-parse", "HEAD")).stdout.trim();
-      const remote = await git(io, dir, "ls-remote", "origin", "refs/heads/main");
-      if (remote.code === 0) f.behind = remote.stdout.split(/\s/)[0] !== head;
-      else ctx.emit({ type: "note", level: "warn", message: "claude-config: origin unreachable — skipping the behind-origin check" });
+      const head = (await git(io, dir, ["rev-parse", "HEAD"])).stdout.trim();
+      const remote = await git(io, dir, ["ls-remote", "origin", "refs/heads/main"], { timeout: 10_000 });
+      if (remote.code === 0 && remote.stdout.trim()) f.behind = remote.stdout.split(/\s/)[0] !== head;
+      else if (remote.code !== 0) ctx.emit({ type: "note", level: "warn", message: "claude-config: origin unreachable — skipping the behind-origin check" });
     }
   }
   f.settings = await readJsonOrNull(io, pj(env.os, dir, "settings.json"));
@@ -118,21 +119,21 @@ export const claudeConfig: Artifact = {
         case `${ID}.adopt`: {
           const url = await cloneUrl(io, o.sshUrl, o.httpsUrl);
           for (const a of [["init", "-q", "-b", "main"], ["remote", "add", "origin", url], ["fetch", "-q", "origin"]]) {
-            const r = await git(io, dir, ...a); if (r.code !== 0) throw new Error(`git ${a[0]} failed: ${r.stderr.trim()}`);
+            const r = await git(io, dir, a); if (r.code !== 0) throw new Error(`git ${a[0]} failed: ${r.stderr.trim()}`);
           }
-          const originMain = (await git(io, dir, "rev-parse", "origin/main")).stdout.trim();
-          await git(io, dir, "update-ref", "refs/heads/main", originMain);
-          await git(io, dir, "reset", "-q", "--mixed", "HEAD");
-          await git(io, dir, "branch", "-q", "--set-upstream-to=origin/main", "main");
+          const originMain = (await git(io, dir, ["rev-parse", "origin/main"])).stdout.trim();
+          await git(io, dir, ["update-ref", "refs/heads/main", originMain]);
+          await git(io, dir, ["reset", "-q", "--mixed", "HEAD"]);
+          await git(io, dir, ["branch", "-q", "--set-upstream-to=origin/main", "main"]);
           const f = await facts(ctx);
-          for (const file of f.deleted) await git(io, dir, "checkout", "-q", "--", file);
+          for (const file of f.deleted) await git(io, dir, ["checkout", "-q", "--", file]);
           if (f.deleted.length) ctx.emit({ type: "note", level: "info", message: `restored ${f.deleted.length} tracked file(s) missing from ~/.claude` });
           if (f.modified.length) ctx.emit({ type: "note", level: "warn", message: `${f.modified.length} tracked file(s) in ~/.claude differ from origin — NOT overwriting; reconcile via git -C ~/.claude status` });
           else ctx.emit({ type: "note", level: "info", message: "adopted: working tree matches origin/main" });
           break;
         }
         case `${ID}.pull`: {
-          const r = await git(io, dir, "pull", "--ff-only", "--quiet");
+          const r = await git(io, dir, ["pull", "--ff-only", "--quiet"]);
           if (r.code !== 0) ctx.emit({ type: "note", level: "warn", message: "pull --ff-only failed — reconcile manually (git -C ~/.claude status)" });
           break;
         }

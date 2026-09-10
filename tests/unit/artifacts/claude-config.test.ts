@@ -121,6 +121,38 @@ describe("claude-config", () => {
     expect((await claudeConfig.verify(ctx)).find((c) => c.id === "settings-valid")).toMatchObject({ status: "error" });
   });
 
+  it("empty ls-remote stdout is treated as not behind, not as origin unreachable", async () => {
+    const { ctx, io, events } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify(JSON.parse(template)) } });
+    io.on((c, a) => c === "git" && a.includes("ls-remote"), () => ({ code: 0, stdout: "", stderr: "" }));
+    gitFake(io, { checkout: true });
+    const s = await claudeConfig.detect(ctx);
+    const details = s.kind === "drifted" ? s.details : [];
+    expect(details.some((d) => d.startsWith("behind origin"))).toBe(false);
+    expect(events.find((e) => e.type === "note" && /origin unreachable/.test(e.message))).toBeUndefined();
+  });
+
+  it("a timed-out ls-remote is treated like an unreachable origin: not behind, with a warn note", async () => {
+    const { ctx, io, events } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify(JSON.parse(template)) } });
+    io.on((c, a) => c === "git" && a.includes("ls-remote"), () => ({ code: 124, stdout: "", stderr: "\n[timeout]" }));
+    gitFake(io, { checkout: true });
+    const s = await claudeConfig.detect(ctx);
+    const details = s.kind === "drifted" ? s.details : [];
+    expect(details.some((d) => d.startsWith("behind origin"))).toBe(false);
+    expect(events.find((e) => e.type === "note" && e.level === "warn" && /origin unreachable/.test(e.message))).toBeTruthy();
+    const call = io.calls.find((c) => c.cmd === "git" && c.args.includes("ls-remote"));
+    expect(call?.opts.timeout).toBe(10_000);
+  });
+
+  it("every git exec sets GIT_TERMINAL_PROMPT=0 to prevent an interactive credential prompt from hanging", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify(JSON.parse(template)) } });
+    gitFake(io, { checkout: true, porcelain: " M CLAUDE.md\n" });
+    await claudeConfig.detect(ctx);
+    // exclude isCheckout's raw rev-parse --show-toplevel probe, which never touches the network and predates the git() helper
+    const gitCalls = io.calls.filter((c) => c.cmd === "git" && c.args[0] === "-C" && !c.args.includes("--show-toplevel"));
+    expect(gitCalls.length).toBeGreaterThan(0);
+    for (const c of gitCalls) expect(c.opts.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0" });
+  });
+
   it("detect and verify never write", async () => {
     const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify({ ...JSON.parse(template), hooks: {} }) } });
     gitFake(io, { checkout: true, porcelain: " M CLAUDE.md\n", remoteHead: "ffffff" });
