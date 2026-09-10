@@ -44,4 +44,9 @@ npm --prefix "$DIR" ci --no-audit --no-fund --silent
 npm --prefix "$DIR" run --silent build
 
 say "bs onboard"
-exec node "$DIR/dist/cli.js" onboard "$@"
+# Under `curl … | bash` stdin is the script pipe; hand onboard the terminal so prompts and the TUI work.
+if [ -r /dev/tty ] && [ -t 1 ]; then
+  exec node "$DIR/dist/cli.js" onboard "$@" </dev/tty
+else
+  exec node "$DIR/dist/cli.js" onboard "$@"
+fi

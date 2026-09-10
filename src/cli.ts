@@ -110,7 +110,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       catch (e) { if (e instanceof SecretScanError) { stderr.write(e.message); return 1; } throw e; }
       for (const f of res.files) await io.writeFile(pj(os, out, ...f.path.split("/")), f.content);
       await io.writeFile(pj(os, out, "instructions.md"), res.instructions);
-      await io.writeFile(pj(os, out, "manifest.json"), JSON.stringify(res.manifest, null, 2) + "\n");
+      await io.writeFile(pj(os, out, "manifest.json"), JSON.stringify(res.manifest, null, 2) + "\n"); // last: a manifest means "complete"
       stdout.write(`==> bundle written: ${out} (${res.files.length} file(s), ${res.manifest.artifacts.length} artifact(s))`);
       return 0;
     }

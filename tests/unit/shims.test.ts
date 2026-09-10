@@ -13,6 +13,7 @@ describe("install shims", () => {
     expect(s).toContain("set -euo pipefail");
     expect(s).toContain('REPO_URL="https://github.com/merpuya/boot-slapper.git"');
     expect(s).toContain('exec node "$DIR/dist/cli.js" onboard "$@"');
+    expect(s).toContain('onboard "$@" </dev/tty');
     expect(s).toContain("brew install node");
     expect(s).not.toMatch(/\bsudo\b/);
     if (has("bash")) expect(spawnSync("bash", ["-n", "install.sh"], { encoding: "utf8" }).status).toBe(0);
@@ -23,7 +24,8 @@ describe("install shims", () => {
     expect(s).toContain("winget install --id OpenJS.NodeJS.LTS");
     expect(s).toContain("winget install --id Git.Git");
     expect(s).toContain("npm ci --no-audit --no-fund");
-    expect(s).toContain("exit $LASTEXITCODE");
+    expect(s).toContain('throw "bs onboard exited $LASTEXITCODE"');
+    expect(s).not.toMatch(/^\s*exit\b/m);
     if (process.platform === "win32") {
       const r = spawnSync("powershell", ["-NoProfile", "-Command", "$null = [scriptblock]::Create((Get-Content -Raw install.ps1)); exit 0"], { encoding: "utf8" });
       expect(r.status, r.stderr).toBe(0);

@@ -10,11 +10,11 @@ export interface CaptureResult { manifest: Manifest; files: BundleFile[]; instru
 export interface SecretHit { path: string; line: number; pattern: string }
 
 /** Checked against every tracked dotclaude file on 2026-09-10: zero hits. `${…}` placeholders after `Bearer` are excluded on purpose. */
-export const SECRET_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+export const SECRET_PATTERNS: ReadonlyArray<{ name: string; re: RegExp; context?: RegExp }> = [
   { name: "anthropic-key", re: /\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/ },
   { name: "bearer", re: /\bBearer\s+(?!\$\{)[A-Za-z0-9._~+/=-]{16,}/ },
   { name: "github-token", re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/ },
-  { name: "hex-64", re: /\b[0-9a-f]{64}\b/ },            // mct sync tokens and most hashed-secret shapes
+  { name: "hex-64", re: /\b[0-9a-f]{64}\b/, context: /token|secret|key|auth|bearer|passw/i }, // mct sync tokens and hashed-secret shapes — only when the line also names a credential; a bare digest is not a secret
 ];
 
 export class SecretScanError extends Error {
@@ -27,7 +27,7 @@ export class SecretScanError extends Error {
 export function scanForSecrets(files: BundleFile[]): SecretHit[] {
   const hits: SecretHit[] = [];
   for (const f of files) f.content.split(/\r?\n/).forEach((line, i) => {
-    for (const p of SECRET_PATTERNS) if (p.re.test(line)) hits.push({ path: f.path, line: i + 1, pattern: p.name });
+    for (const p of SECRET_PATTERNS) if (p.re.test(line) && (!p.context || p.context.test(line))) hits.push({ path: f.path, line: i + 1, pattern: p.name });
   });
   return hits;
 }

@@ -16,12 +16,12 @@ describe("scanForSecrets", () => {
     const hits = scanForSecrets([
       { path: "a.txt", content: "ok\nsk-ant-api03-abcdefghijklmnop\n" },
       { path: "b.json", content: '{"Authorization":"Bearer ${MECP_DEVICE_TOKEN}"}\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123\n' },
-      { path: "c.md", content: "commit 3ea32df27be7 and " + "0".repeat(64) + "\n" },
+      { path: "c.md", content: "commit 3ea32df27be7 and digest " + "0".repeat(64) + "\ntoken " + "1".repeat(64) + "\n" },
       { path: "d.md", content: "ghp_" + "A".repeat(36) + "\n" },
     ]);
     expect(hits).toEqual([
       { path: "a.txt", line: 2, pattern: "anthropic-key" }, { path: "b.json", line: 2, pattern: "bearer" },
-      { path: "c.md", line: 1, pattern: "hex-64" }, { path: "d.md", line: 1, pattern: "github-token" },
+      { path: "c.md", line: 2, pattern: "hex-64" }, { path: "d.md", line: 1, pattern: "github-token" },
     ]);
   });
 });
