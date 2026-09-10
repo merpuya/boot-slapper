@@ -1,0 +1,4 @@
+# install.sh runs under bash on every platform (Git Bash on Windows). Keep LF so a Windows
+# checkout (core.autocrlf) cannot turn the shebang into "#!/usr/bin/env bash\r" — that breaks the
+# shim for real and failed the windows-latest CI job on PR #2. PowerShell is fine with either ending.
+*.sh text eol=lf
