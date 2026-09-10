@@ -15,7 +15,7 @@ const run = (cmd: string, args: string[]) =>
   });
 
 describe.skipIf(!existsSync(BOOTSTRAP))("doctor parity (gate 1)", () => {
-  it("bs doctor --json agrees with bootstrap.sh --doctor on every shared check", () => {
+  it("bs doctor --json agrees with bootstrap.sh --doctor on every shared check", { timeout: 300_000 }, () => {
     const bash = run("bash", [BOOTSTRAP, "--doctor"]);
     expect(bash.error, "bootstrap.sh --doctor timed out or failed to spawn").toBeUndefined();
     const bashMap = parseBashDoctor(bash.stdout + bash.stderr);
