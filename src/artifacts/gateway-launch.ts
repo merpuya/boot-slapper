@@ -18,7 +18,9 @@ async function layout(ctx: Ctx): Promise<Layout> {
   const bundle = o.mcpBundle ?? P.join(env.claudeDir, "mcp", "gateway.json");
   if (env.os === "win32") {
     const prof = await io.exec("powershell", ["-NoProfile", "-Command", "$PROFILE"]);
-    const rcFile = prof.code === 0 && prof.stdout.trim() ? prof.stdout.trim() : P.join(env.home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1");
+    // fallback matches Windows PowerShell 5.1's default profile path — the shell this probe execs via `powershell`
+    // (pwsh/PS7 defaults to Documents\PowerShell instead; reconciling that is a gate-2 question).
+    const rcFile = prof.code === 0 && prof.stdout.trim() ? prof.stdout.trim() : P.join(env.home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1");
     return {
       wrapper: P.join(cfg, "claude-gw.ps1"), wrapperBody: renderPs1({ baseUrl: o.baseUrl, mcpBundle: bundle, home: env.home }),
       cmdShim: P.join(env.home, ".local", "bin", "claude-gw.cmd"),

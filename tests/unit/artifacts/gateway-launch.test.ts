@@ -76,4 +76,15 @@ describe("gateway-launch (win32)", () => {
     expect(await gatewayLaunch.detect(ctx)).toEqual({ kind: "present" });
     expect(gatewayLaunch.plan(ctx, { kind: "present" })).toEqual([]);
   });
+
+  it("falls back to the Windows PowerShell 5.1 profile path when $PROFILE can't be probed (matches the shell this probe execs)", async () => {
+    const home = "C:\\Users\\t";
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t" }, files: { [`${home}\\.claude\\mcp\\gateway.json`]: bundle } });
+    io.on((c, a) => c === "powershell" && a.includes("$PROFILE"), () => ({ code: 1, stdout: "", stderr: "" }));
+    io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
+    const s = await gatewayLaunch.detect(ctx);
+    const steps = gatewayLaunch.plan(ctx, s);
+    await gatewayLaunch.apply(ctx, steps);
+    expect(io.files.get(`${home}\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1`)).toBe(`. "$env:USERPROFILE\\.config\\boot-slapper\\claude-gw.ps1"  ${MARKER}\n`);
+  });
 });
