@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { InteractiveRequired, type Ctx } from "./engine/artifact.ts";
 import { probeEnv, resolveEnv } from "./engine/env.ts";
@@ -104,6 +105,6 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("/dist/cli.js") || process.argv[1]?.endsWith("\\dist\\cli.js")) {
+if ((process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) || process.argv[1]?.endsWith("/dist/cli.js") || process.argv[1]?.endsWith("\\dist\\cli.js")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e); process.exit(1); });
 }
