@@ -28,7 +28,10 @@ const git = (io: Io, dir: string, ...args: string[]) => io.exec("git", ["-C", di
 async function readJsonOrNull(io: Io, p: string): Promise<Record<string, unknown> | null | "invalid"> {
   const s = await io.readFile(p);
   if (s === null) return null;
-  try { return JSON.parse(s) as Record<string, unknown>; } catch { return "invalid"; }
+  try {
+    const v = JSON.parse(s) as unknown;
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : "invalid";
+  } catch { return "invalid"; }
 }
 
 interface Facts {
@@ -54,7 +57,9 @@ async function facts(ctx: Ctx): Promise<Facts> {
       const st = await git(io, dir, "status", "--porcelain");
       for (const line of st.stdout.split(/\r?\n/)) {
         if (!line) continue;
-        const code = line.slice(0, 2), file = line.slice(3);
+        const code = line.slice(0, 2);
+        if (code === "??" || code === "!!") continue;               // untracked / ignored: not tracked drift
+        const file = line.slice(3).split(" -> ").pop()!;             // renames: report the new name
         if (code.includes("D")) f.deleted.push(file); else if (code.trim()) f.modified.push(file);
       }
       const head = (await git(io, dir, "rev-parse", "HEAD")).stdout.trim();

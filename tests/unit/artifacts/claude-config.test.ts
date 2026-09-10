@@ -101,4 +101,32 @@ describe("claude-config", () => {
     const checks = await claudeConfig.verify(ctx);
     expect(checks.map((c) => [c.id, c.status])).toEqual([["checkout", "ok"], ["clean", "ok"], ["settings-valid", "error"]]);
   });
+
+  it("ignores untracked files and reports renames by their new name", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify(JSON.parse(template)) } });
+    gitFake(io, { checkout: true, porcelain: "?? scratch.txt\nR  old.md -> new.md\n" });
+    // settings.json lacks hooks, so drift is expected — but the only *file* drift reported must be the rename
+    const s = await claudeConfig.detect(ctx);
+    expect(s.kind).toBe("drifted");
+    const details = (s as { details: string[] }).details;
+    expect(details.find((d) => /tracked file\(s\) differ/.test(d))).toMatch(/1 tracked file\(s\) differ .*: new\.md$/);
+    expect(details.join("\n")).not.toContain("scratch.txt");
+  });
+
+  it("treats non-object JSON in settings.json as invalid instead of crashing", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": "[1]" } });
+    gitFake(io, { checkout: true });
+    const s = await claudeConfig.detect(ctx);
+    expect((s as { details: string[] }).details).toContain("settings.json is not valid JSON");
+    expect((await claudeConfig.verify(ctx)).find((c) => c.id === "settings-valid")).toMatchObject({ status: "error" });
+  });
+
+  it("detect and verify never write", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify({ ...JSON.parse(template), hooks: {} }) } });
+    gitFake(io, { checkout: true, porcelain: " M CLAUDE.md\n", remoteHead: "ffffff" });
+    await claudeConfig.detect(ctx);
+    await claudeConfig.verify(ctx);
+    expect(io.writes).toEqual([]);
+    expect(io.calls.filter((c) => c.cmd === "git").map((c) => c.args[2])).not.toContain("fetch");
+  });
 });
