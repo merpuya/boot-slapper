@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Artifact, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { defaultAccount } from "../engine/secrets/store.ts";
-import { renderCmd, renderPs1 } from "./templates/claude-gw.ps1.ts";
+import { renderCmd, renderPs1, renderRunnerPs1 } from "./templates/claude-gw.ps1.ts";
 import { renderZsh } from "./templates/claude-gw.zsh.ts";
 
 export const MARKER = "# boot-slapper:claude-gw";
@@ -9,7 +9,7 @@ const ID = "gateway-launch";
 const step = (s: string, title: string): Step => ({ id: `${ID}.${s}`, title });
 interface Opts { baseUrl: string; mcpBundle?: string }
 
-interface Layout { wrapper: string; wrapperBody: string; rcFile: string; rcLine: string; cmdShim?: string; bundle: string }
+interface Layout { wrapper: string; wrapperBody: string; rcFile: string; rcLine: string; cmdShim?: string; runner?: string; runnerBody?: string; bundle: string }
 
 async function layout(ctx: Ctx): Promise<Layout> {
   const { env, io } = ctx; const o = ctx.opts as unknown as Opts;
@@ -22,6 +22,7 @@ async function layout(ctx: Ctx): Promise<Layout> {
     return {
       wrapper: P.join(cfg, "claude-gw.ps1"), wrapperBody: renderPs1({ baseUrl: o.baseUrl, mcpBundle: bundle, home: env.home }),
       cmdShim: P.join(env.home, ".local", "bin", "claude-gw.cmd"),
+      runner: P.join(cfg, "claude-gw-run.ps1"), runnerBody: renderRunnerPs1(),
       rcFile, rcLine: `. "$env:USERPROFILE\\.config\\boot-slapper\\claude-gw.ps1"  ${MARKER}`, bundle,
     };
   }
@@ -45,6 +46,11 @@ export const gatewayLaunch: Artifact = {
     const details: string[] = [];
     if (current === null) details.push("wrapper absent — will write");
     else if (current !== L.wrapperBody) details.push("wrapper differs from the generated version — will regenerate");
+    if (L.runner) {
+      const curRunner = await io.readFile(L.runner);
+      if (curRunner === null) details.push("wrapper absent — will write");
+      else if (curRunner !== L.runnerBody) details.push("wrapper differs from the generated version — will regenerate");
+    }
     if (L.cmdShim && (await io.readFile(L.cmdShim)) !== renderCmd()) details.push("cmd shim absent or stale — will write");
     if (!hasMarker(rc)) details.push(`no ${MARKER} line in ${L.rcFile} — will append`);
     if (!details.length) return { kind: "present" };
@@ -64,7 +70,10 @@ export const gatewayLaunch: Artifact = {
     const L = await layout(ctx); const { io } = ctx;
     for (const s of steps) {
       switch (s.id) {
-        case `${ID}.wrapper`: await io.writeFile(L.wrapper, L.wrapperBody, { mode: 0o644 }); break;
+        case `${ID}.wrapper`:
+          await io.writeFile(L.wrapper, L.wrapperBody, { mode: 0o644 });
+          if (L.runner && L.runnerBody !== undefined) await io.writeFile(L.runner, L.runnerBody, { mode: 0o644 });
+          break;
         case `${ID}.cmd-shim`: if (L.cmdShim) await io.writeFile(L.cmdShim, renderCmd()); break;
         case `${ID}.shell-rc`: {
           const rc = (await io.readFile(L.rcFile)) ?? "";
@@ -80,7 +89,9 @@ export const gatewayLaunch: Artifact = {
   async verify(ctx): Promise<Check[]> {
     const L = await layout(ctx); const { io, env } = ctx; const out: Check[] = [];
     const wrapper = await io.readFile(L.wrapper);
-    out.push(wrapper === L.wrapperBody ? { id: "wrapper", status: "ok", message: `wrapper current: ${L.wrapper}` } : { id: "wrapper", status: "error", message: `wrapper missing or stale: ${L.wrapper} — run bs onboard` });
+    let wrapperOk = wrapper === L.wrapperBody;
+    if (L.runner) wrapperOk = wrapperOk && (await io.readFile(L.runner)) === L.runnerBody;
+    out.push(wrapperOk ? { id: "wrapper", status: "ok", message: `wrapper current: ${L.wrapper}` } : { id: "wrapper", status: "error", message: `wrapper missing or stale: ${L.wrapper} — run bs onboard` });
     const rc = await io.readFile(L.rcFile);
     out.push(hasMarker(rc) ? { id: "shell-rc", status: "ok", message: `${L.rcFile} sources the wrapper` } : { id: "shell-rc", status: "error", message: `${L.rcFile} lacks the claude-gw line — run bs onboard` });
     const legacy = legacyLine(rc);

@@ -66,8 +66,14 @@ describe("gateway-launch (win32)", () => {
     await gatewayLaunch.apply(ctx, steps);
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("$env:ANTHROPIC_BASE_URL = 'https://api.ai.it.cornell.edu'");
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain('--mcp-config "$env:USERPROFILE\\.claude\\mcp\\gateway.json"');
+    expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("[Environment]::SetEnvironmentVariable($n, $saved[$n], 'Process')");
+    expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw-run.ps1`)).toContain("claude-gw @args");
     expect(io.files.get(`${home}\\.local\\bin\\claude-gw.cmd`)).toMatch(/^@echo off\r\n/);
+    expect(io.files.get(`${home}\\.local\\bin\\claude-gw.cmd`)).toContain('-File "%USERPROFILE%\\.config\\boot-slapper\\claude-gw-run.ps1" %*');
+    expect(io.files.get(`${home}\\.local\\bin\\claude-gw.cmd`)).not.toContain("-Command");
     expect(io.files.get(`${home}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1`)).toBe(`. "$env:USERPROFILE\\.config\\boot-slapper\\claude-gw.ps1"  ${MARKER}\n`);
     expect((await gatewayLaunch.verify(ctx)).find((c) => c.id === "path")).toMatchObject({ status: "ok" });
+    expect(await gatewayLaunch.detect(ctx)).toEqual({ kind: "present" });
+    expect(gatewayLaunch.plan(ctx, { kind: "present" })).toEqual([]);
   });
 });
