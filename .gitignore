@@ -1,6 +1,7 @@
 node_modules/
 dist/
-.remember/
+.remember/*
+!.remember/handoffs/
 *.log
 .worktrees/
 .superpowers/
