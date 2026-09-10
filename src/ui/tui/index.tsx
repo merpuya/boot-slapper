@@ -20,7 +20,7 @@ export interface TuiOpts {
 /** Renders the Ink skin over the same engine calls the headless runner makes; resolves with the exit code. */
 export function runTui(o: TuiOpts): Promise<number> {
   return new Promise<number>((resolve, reject) => {
-    let code = 1;
+    let code = 130; // Ctrl+C makes Ink exit without ever calling onExit; 130 is the conventional SIGINT exit code
     const makeCtx = (emit: (a: Action) => void, prompt: Prompter) =>
       buildCtx(o.io, o.profile, { interactive: true, prompt, emit: (e) => { emit(e); o.log?.emit(e); } });
     const inst = render(

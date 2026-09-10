@@ -84,4 +84,18 @@ describe("bs cli", () => {
     expect(err.lines[0]).toBe("refusing to write the bundle: 1 secret-shaped string(s) — claude-config/notes.md:1 (anthropic-key)");
     expect(io.writes).toEqual([]);
   });
+  it("onboard picks the TUI when asked and the run log still lands; --headless forces line output", async () => {
+    const { FakeStdin, FakeStdout, waitFor } = await import("./ui/streams.ts");
+    const io = new FakeIo(); io.on(() => true, () => ({ code: 127, stdout: "", stderr: "" }));      // prereqs blocked → nothing to confirm-apply, but the plan renders
+    const stdout = new FakeStdout(); const stdin = new FakeStdin(); const lines = sink();
+    const run = main(["onboard"], { io, stdout: lines, stderr: sink(), interactive: true, tui: true, streams: { stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream }, debug: true });
+    await waitFor(() => stdout.lastFrame().includes("Apply this plan? [y/N]"));
+    expect(stdout.lastFrame()).toContain("prereqs [device-bound]: blocked");
+    stdin.write("n"); stdin.write("\r");
+    expect(await run).toBe(3);
+    expect(lines.lines.at(-1)).toMatch(/^==> run log: \/h\/\.config\/boot-slapper\/runs\//);
+    const out2 = sink();
+    expect(await main(["onboard", "--headless", "--auto"], { io, stdout: out2, stderr: sink() })).toBe(1);   // --auto implies headless; blocked prereqs → exit 1
+    expect(out2.lines[0]).toMatch(/^==> boot-slapper onboard — profile aca34/);
+  });
 });

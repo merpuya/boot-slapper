@@ -17,12 +17,23 @@ export class FakeStdout extends EventEmitter {
   }
   all(): string { return stripAnsi(this.frames.join("\n")); }
 }
-/** What Ink needs from stdin: a readable that supports raw mode. write() feeds one chunk. */
+/** What Ink needs from stdin: a readable that supports raw mode. Each write() queues one chunk. */
 export class FakeStdin extends EventEmitter {
-  isTTY = true; private data: string | null = null;
+  isTTY = true; private queue: string[] = [];
   setRawMode(): void {} setEncoding(): void {} ref(): void {} unref(): void {} resume(): void {} pause(): void {}
-  read(): string | null { const d = this.data; this.data = null; return d; }
-  write(s: string): void { this.data = s; this.emit("readable"); this.emit("data", s); }
+  read(): string | null { return this.queue.length > 0 ? this.queue.shift()! : null; }
+  write(s: string): void { this.queue.push(s); this.emit("readable"); this.emit("data", s); }
+  // Ink attaches its 'readable' listener asynchronously (only after the render that shows a
+  // prompt has committed), so a write() landing before that listener exists fires 'readable' to
+  // nobody — and a plain EventEmitter never redelivers a missed emit, unlike a real tty, which
+  // keeps buffered input around for whoever reads it next. Nudge a fresh 'readable' once a
+  // listener does attach, so already-queued input is never silently lost.
+  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    super.on(event, listener);
+    if (event === "readable" && this.queue.length > 0) queueMicrotask(() => this.emit("readable"));
+    return this;
+  }
+  addListener(event: string | symbol, listener: (...args: unknown[]) => void): this { return this.on(event, listener); }
 }
 export async function waitFor(pred: () => boolean, ms = 3000): Promise<void> {
   const t0 = Date.now();
