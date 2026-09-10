@@ -27,6 +27,12 @@ export function runTui(o: TuiOpts): Promise<number> {
       <App mode={o.mode} profile={o.profile} filter={o.filter ?? {}} makeCtx={makeCtx} onExit={(c) => { code = c; }} />,
       { stdout: o.streams?.stdout ?? process.stdout, stdin: o.streams?.stdin ?? process.stdin, exitOnCtrlC: true, patchConsole: false, debug: o.debug ?? false },
     );
-    inst.waitUntilExit().then(() => resolve(code), reject);
+    inst.waitUntilExit().then(() => {
+      // When the frame fills the terminal Ink leaves the cursor at the end of its last line (no trailing newline).
+      // Anything that then clears the current line — npm's progress spinner cleanup after `npx`, for one — erases
+      // the Doctor summary. End on a fresh line so the shell prompt and any such cleanup land below the frame.
+      (o.streams?.stdout ?? process.stdout).write("\n");
+      resolve(code);
+    }, reject);
   });
 }

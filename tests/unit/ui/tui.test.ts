@@ -61,5 +61,6 @@ describe("Ink TUI", () => {
     expect(stdout.lastFrame()).toContain("✗ a broken");
     expect(stdout.lastFrame()).toContain("! b so-so");
     expect(stdout.lastFrame()).toContain("Doctor: 1 check(s) FAILED");
+    expect(stdout.frames.at(-1)).toBe("\n");   // the very last write is a newline, so nothing after Ink can erase the summary line
   });
 });
