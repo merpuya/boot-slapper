@@ -23,7 +23,7 @@ async function makeCtx(interactive = false): Promise<{ ctx: Ctx; events: EngineE
   return { ctx, events };
 }
 
-function art(id: string, o: { requires?: string[]; absent?: boolean; steps?: Step[]; failOn?: string; applied?: string[] }): Artifact {
+function art(id: string, o: { requires?: string[]; absent?: boolean; steps?: Step[]; failOn?: string; applied?: string[]; verifyThrows?: boolean }): Artifact {
   return {
     id, requires: o.requires ?? [], surfaces: ["code"], portability: "portable",
     detect: async () => (o.absent ? { kind: "absent" } : { kind: "present" }),
@@ -31,7 +31,10 @@ function art(id: string, o: { requires?: string[]; absent?: boolean; steps?: Ste
     apply: async (_c, steps) => {
       for (const s of steps) { if (s.id === o.failOn) throw new Error(`boom ${s.id}`); o.applied?.push(s.id); }
     },
-    verify: async () => [{ id: `${id}.ok`, status: "ok", message: "fine" }],
+    verify: async () => {
+      if (o.verifyThrows) throw new Error("verify boom");
+      return [{ id: `${id}.ok`, status: "ok", message: "fine" }];
+    },
   };
 }
 
@@ -83,6 +86,33 @@ describe("applyPlan", () => {
     expect(applied).toEqual(["a.2"]);
     expect(res.failed).toEqual([]);
     expect(events.find((e) => e.type === "note" && e.level === "warn")).toBeTruthy();
+  });
+  it("a throwing verify becomes an error check instead of aborting the run", async () => {
+    const { ctx } = await makeCtx();
+    const a = art("a", { verifyThrows: true });
+    const b = art("b", {});
+    const res = await applyPlan(await resolvePlan(profile([a, b]), ctx), ctx);
+    expect(res.checks.a).toEqual([{ id: "verify", status: "error", message: "verify threw: verify boom" }]);
+    expect(res.checks.b[0].status).toBe("ok");
+    const all = await verifyAll(profile([a, b]), ctx);
+    expect(all.a[0].id).toBe("verify");
+  });
+  it("present artifacts land in unchanged so the accounting sums to the plan length", async () => {
+    const { ctx } = await makeCtx();
+    const plan = await resolvePlan(profile([art("a", {}), art("b", { absent: true })]), ctx);
+    const res = await applyPlan(plan, ctx);
+    expect(res.unchanged).toEqual(["a"]);
+    expect(res.applied).toEqual(["b"]);
+    expect(res.applied.length + res.failed.length + res.skipped.length + res.unchanged.length).toBe(plan.length);
+  });
+  it("warns, but proceeds, when --only cuts a requires edge", async () => {
+    const { ctx, events } = await makeCtx();
+    const applied: string[] = [];
+    const p = profile([art("a", { absent: true, applied }), art("b", { absent: true, applied, requires: ["a"] })]);
+    const res = await applyPlan(await resolvePlan(p, ctx, { only: ["b"] }), ctx);
+    expect(applied).toEqual(["b.do"]);
+    expect(res.applied).toEqual(["b"]);
+    expect(events).toContainEqual({ type: "note", level: "warn", message: 'b: requires "a", which is not in this plan (--only/--skip) — proceeding anyway' });
   });
 });
 
