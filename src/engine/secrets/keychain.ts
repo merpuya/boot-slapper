@@ -16,7 +16,7 @@ export class KeychainStore implements SecretStore {
     assertSafeRef(ref);
     const line = `add-generic-password -U -s ${ref.service} -a ${ref.account} -X ${Buffer.from(value, "utf8").toString("hex")}\n`;
     const r = await this.io.exec("security", ["-i"], { stdin: line });
-    if (r.code !== 0) throw new Error(`security add-generic-password failed (${r.code}): ${r.stderr.trim()}`);
+    if (r.code !== 0) throw new Error(`security add-generic-password failed (exit ${r.code})`);
   }
   describe(ref: SecretRef): string {
     return `login Keychain item service=${ref.service} account=${ref.account}`;

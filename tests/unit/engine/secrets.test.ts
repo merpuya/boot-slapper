@@ -39,6 +39,21 @@ describe("KeychainStore", () => {
     await expect(new KeychainStore(io).set({ service: "cornell-ai-gateway", account: "a b\ndelete-keychain" }, "v")).rejects.toThrow(/account contains characters/);
     expect(io.calls).toHaveLength(0);
   });
+  it("get rejects a hostile account before any exec", async () => {
+    const io = new FakeIo();
+    await expect(new KeychainStore(io).get({ service: "cornell-ai-gateway", account: "a b\ndelete-keychain" })).rejects.toThrow(/account contains characters/);
+    expect(io.calls).toHaveLength(0);
+  });
+  it("set failure never echoes stderr (which may contain the plaintext value)", async () => {
+    const io = new FakeIo();
+    const hex = Buffer.from("snitch secret", "utf8").toString("hex");
+    io.on((c) => c === "security", () => ({ code: 1, stdout: "", stderr: `add-generic-password: -X ${hex}` }));
+    let message = "";
+    try { await new KeychainStore(io).set(ref, "snitch secret"); } catch (e) { message = (e as Error).message; }
+    expect(message).toBe("security add-generic-password failed (exit 1)");
+    expect(message).not.toContain("snitch secret");
+    expect(message).not.toContain(hex);
+  });
 });
 
 describe("PasswordVaultStore", () => {
@@ -61,7 +76,27 @@ describe("PasswordVaultStore", () => {
     await new PasswordVaultStore(io).set(ref, "it's a secret");
     const call = io.calls[0];
     expect(call.opts.stdin).toContain("PasswordCredential('cornell-ai-gateway','aca34','it''s a secret')");
+    expect(call.opts.stdin).toContain("$ErrorActionPreference = 'Stop'");
+    expect(call.opts.stdin).toMatch(/catch \{ exit 45 \}/);
     expect(JSON.stringify(call.args)).not.toContain("secret");
+  });
+  it("get rejects a hostile account before any exec", async () => {
+    const io = new FakeIo({ platform: "win32" });
+    await expect(new PasswordVaultStore(io).get({ service: "cornell-ai-gateway", account: "a b\ndelete" })).rejects.toThrow(/account contains characters/);
+    expect(io.calls).toHaveLength(0);
+  });
+  it("set rejects a hostile account before any exec", async () => {
+    const io = new FakeIo({ platform: "win32" });
+    await expect(new PasswordVaultStore(io).set({ service: "cornell-ai-gateway", account: "a b\ndelete" }, "v")).rejects.toThrow(/account contains characters/);
+    expect(io.calls).toHaveLength(0);
+  });
+  it("set failure never echoes stderr (PowerShell error records may echo the plaintext line)", async () => {
+    const io = new FakeIo({ platform: "win32" });
+    io.on((c) => c === "powershell", () => ({ code: 1, stdout: "", stderr: "PasswordCredential('cornell-ai-gateway','aca34','snitch secret')" }));
+    let message = "";
+    try { await new PasswordVaultStore(io).set(ref, "snitch secret"); } catch (e) { message = (e as Error).message; }
+    expect(message).toBe("PasswordVault add failed (exit 1)");
+    expect(message).not.toContain("snitch secret");
   });
 });
 

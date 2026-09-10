@@ -23,10 +23,14 @@ export class PasswordVaultStore implements SecretStore {
   async set(ref: SecretRef, value: string): Promise<void> {
     assertSafeRef(ref);
     const r = await this.run(
-      `try { $old = $v.Retrieve('${ps(ref.service)}','${ps(ref.account)}'); $v.Remove($old) } catch {}\n` +
-      `$v.Add((New-Object Windows.Security.Credentials.PasswordCredential('${ps(ref.service)}','${ps(ref.account)}','${ps(value)}')))\n`,
+      `$ErrorActionPreference = 'Stop'\n` +
+      `try {\n` +
+      `  try { $old = $v.Retrieve('${ps(ref.service)}','${ps(ref.account)}'); $v.Remove($old) } catch {}\n` +
+      `  $v.Add((New-Object Windows.Security.Credentials.PasswordCredential('${ps(ref.service)}','${ps(ref.account)}','${ps(value)}')))\n` +
+      `  exit 0\n` +
+      `} catch { exit 45 }\n`,
     );
-    if (r.code !== 0) throw new Error(`PasswordVault add failed (${r.code}): ${r.stderr.trim()}`);
+    if (r.code !== 0) throw new Error(`PasswordVault add failed (exit ${r.code})`);
   }
   describe(ref: SecretRef): string {
     return `Windows Credential Manager (PasswordVault) resource=${ref.service} user=${ref.account}`;
