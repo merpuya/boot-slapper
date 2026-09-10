@@ -161,4 +161,16 @@ describe("claude-config", () => {
     expect(io.writes).toEqual([]);
     expect(io.calls.filter((c) => c.cmd === "git").map((c) => c.args[2])).not.toContain("fetch");
   });
+
+  it("capture bundles exactly the tracked files under claude-config/ and never writes", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { "/h/.claude/CLAUDE.md": "rules\n", "/h/.claude/scripts/x.mjs": "js\n", "/h/.claude/untracked.txt": "no\n" } });
+    io.on((c, a) => c === "git" && a.includes("ls-files"), () => ({ code: 0, stdout: "CLAUDE.md\0scripts/x.mjs\0deleted.md\0", stderr: "" }));
+    gitFake(io, { checkout: true });
+    const b = await claudeConfig.capture!(ctx);
+    expect(b.files).toEqual([{ path: "claude-config/CLAUDE.md", content: "rules\n" }, { path: "claude-config/scripts/x.mjs", content: "js\n" }]);
+    expect(io.writes).toEqual([]);
+    const { ctx: plain, io: io2 } = await makeCtx({ opts, dirs: ["/h/.claude"] });
+    gitFake(io2, { checkout: false });
+    expect((await claudeConfig.capture!(plain)).files).toEqual([]);
+  });
 });

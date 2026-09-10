@@ -70,4 +70,15 @@ describe("artifact contract: detect/verify never write and only run allowlisted 
     expect(plan2.flatMap((p) => p.steps)).toEqual([]);
     expect(io.writes).toEqual([]);
   });
+
+  it("capture never writes, and device-bound / non-transferable artifacts capture no files", async () => {
+    for (const artifact of aca34.artifacts) {
+      if (!artifact.capture) continue;
+      const { ctx, io } = await makeCtx({ path: allTools, dirs: ["/h/.claude"], env: { USER: "aca34" }, opts: aca34.options[artifact.id] ?? {} });
+      benignHandlers(io);
+      const b = await artifact.capture(withOpts(ctx, aca34.options[artifact.id]));
+      expect(io.writes, artifact.id).toEqual([]);
+      if (artifact.portability === "device-bound" || artifact.portability === "non-transferable") expect(b.files, artifact.id).toEqual([]);
+    }
+  });
 });

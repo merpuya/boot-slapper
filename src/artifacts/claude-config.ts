@@ -1,4 +1,4 @@
-import type { Artifact, Check, Ctx, State, Step } from "../engine/artifact.ts";
+import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { pj } from "../engine/env.ts";
 import type { ExecOpts, Io } from "../engine/io.ts";
 import { deepEqual, renderHooks, seedSettings, stableJson, type HooksBlock } from "../engine/settings.ts";
@@ -180,5 +180,18 @@ export const claudeConfig: Artifact = {
     const drift = [...f.templateAdded, ...f.templateStale];
     out.push(drift.length ? { id: "template-keys", status: "error", message: `settings template drift: ${drift.join(", ")} — run bs onboard` } : { id: "template-keys", status: "ok", message: "settings.json carries every template key (managed keys in sync)" });
     return out;
+  },
+
+  async capture(ctx): Promise<Bundle> {
+    const { io, env } = ctx; const dir = env.claudeDir;
+    if (!(await isCheckout(io, dir))) return { files: [], instructions: ["~/.claude is not a dotclaude checkout — nothing captured; the target clones dotclaude itself (bs onboard)"] };
+    const ls = await git(io, dir, ["ls-files", "-z"]);
+    if (ls.code !== 0) throw new Error(`git ls-files failed: ${ls.stderr.trim()}`);
+    const files: Bundle["files"] = [];
+    for (const rel of ls.stdout.split("\0").filter(Boolean)) {
+      const content = await io.readFile(pj(env.os, dir, ...rel.split("/")));
+      if (content !== null) files.push({ path: `claude-config/${rel}`, content });     // a tracked-but-deleted file is simply not bundled
+    }
+    return { files, instructions: [] };
   },
 };

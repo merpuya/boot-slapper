@@ -2,6 +2,7 @@
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { InteractiveRequired, type Ctx } from "./engine/artifact.ts";
+import { captureBundle, SecretScanError, type CaptureResult } from "./engine/capture.ts";
 import { pj, probeEnv, resolveEnv, toOs } from "./engine/env.ts";
 import type { EngineEvent } from "./engine/events.ts";
 import { RealIo, type Io } from "./engine/io.ts";
@@ -20,6 +21,7 @@ const USAGE = `usage: bs — boot-slapper
   bs plan    [--profile aca34] [--only a,b] [--skip a,b]
   bs doctor  [--profile aca34] [--json]
   bs onboard [--profile aca34] [--auto] [--only a,b] [--skip a,b]
+  bs capture --out <dir> [--profile aca34]
   bs secrets set|check <${SERVICES.join("|")}>`;
 
 interface Deps { io?: Io; stdout?: Sink; stderr?: Sink; interactive?: boolean }
@@ -38,7 +40,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   try {
     ({ values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: {
       profile: { type: "string", default: "aca34" }, json: { type: "boolean" }, auto: { type: "boolean" },
-      only: { type: "string" }, skip: { type: "string" },
+      only: { type: "string" }, skip: { type: "string" }, out: { type: "string" },
     } }));
   } catch (e) { stderr.write(String(e instanceof Error ? e.message : e)); stderr.write(USAGE); return 2; }
 
@@ -78,6 +80,21 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       stdout.write(`==> run log: ${log.path}`);
       await log.done();
       return res.failed.length || worstStatus(res.checks) === "error" ? 1 : 0;
+    }
+    case "capture": {
+      const out = typeof values.out === "string" ? values.out : "";
+      if (!out) { stderr.write("bs capture needs --out <dir>"); stderr.write(USAGE); return 2; }
+      const os = toOs(io.platform);
+      if (await io.exists(pj(os, out, "manifest.json"))) { stderr.write(`${out} already holds a bundle (manifest.json) — choose another --out`); return 1; }
+      const ctx = await buildCtx(io, profile, false, headlessReporter(stdout));
+      let res: CaptureResult;
+      try { res = await captureBundle(profile, ctx); }
+      catch (e) { if (e instanceof SecretScanError) { stderr.write(e.message); return 1; } throw e; }
+      for (const f of res.files) await io.writeFile(pj(os, out, ...f.path.split("/")), f.content);
+      await io.writeFile(pj(os, out, "instructions.md"), res.instructions);
+      await io.writeFile(pj(os, out, "manifest.json"), JSON.stringify(res.manifest, null, 2) + "\n");   // last: a manifest means "complete"
+      stdout.write(`==> bundle written: ${out} (${res.files.length} file(s), ${res.manifest.artifacts.length} artifact(s))`);
+      return 0;
     }
     case "secrets": {
       const [op, svc] = positionals;

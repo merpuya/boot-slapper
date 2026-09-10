@@ -56,4 +56,32 @@ describe("bs cli", () => {
     expect(err.lines[0]).toMatch(/interactive terminal/);
     expect(io.calls).toHaveLength(0);
   });
+  it("capture --out writes the bundle (files, instructions.md, manifest.json last) and refuses to overwrite a bundle", async () => {
+    const out = sink();
+    const io = new FakeIo({ env: { USER: "aca34" }, dirs: ["/h/.claude"], files: { "/h/.claude/CLAUDE.md": "rules\n", "/h/.claude/plugins/known_marketplaces.json": "{}", "/h/.claude/plugins/installed_plugins.json": '{"version":2,"plugins":{}}' } });
+    io.on((c, a) => c === "git" && a.includes("--show-toplevel"), () => ({ code: 0, stdout: "/h/.claude\n", stderr: "" }));
+    io.on((c, a) => c === "git" && a.includes("ls-files"), () => ({ code: 0, stdout: "CLAUDE.md\0", stderr: "" }));
+    io.on(() => true, () => ({ code: 1, stdout: "", stderr: "" }));
+    expect(await main(["capture", "--out", "/tmp/b"], { io, stdout: out, stderr: sink() })).toBe(0);
+    expect(io.writes).toEqual(["/tmp/b/claude-config/CLAUDE.md", "/tmp/b/plugins.json", "/tmp/b/instructions.md", "/tmp/b/manifest.json"]);
+    const m = JSON.parse(io.files.get("/tmp/b/manifest.json")!);
+    expect(m.schema).toBe(1);
+    expect(m.artifacts.map((a: { id: string }) => a.id)).toEqual(["prereqs", "claude-config", "secrets", "project-memory", "plugins", "mct"]);   // DAG order; gateway-launch has no capture
+    expect(io.files.get("/tmp/b/instructions.md")).toMatch(/## secrets \(device-bound\)/);
+    expect(out.lines.at(-1)).toBe("==> bundle written: /tmp/b (2 file(s), 6 artifact(s))");
+    const err = sink();
+    expect(await main(["capture", "--out", "/tmp/b"], { io, stdout: sink(), stderr: err })).toBe(1);
+    expect(err.lines[0]).toMatch(/already holds a bundle/);
+    expect(await main(["capture"], { io, stdout: sink(), stderr: sink() })).toBe(2);
+  });
+  it("capture refuses the whole bundle on a secret-shaped string and writes nothing", async () => {
+    const io = new FakeIo({ env: { USER: "aca34" }, dirs: ["/h/.claude"], files: { "/h/.claude/notes.md": "token sk-ant-abcdefghijklmnopqrstuv\n" } });
+    io.on((c, a) => c === "git" && a.includes("--show-toplevel"), () => ({ code: 0, stdout: "/h/.claude\n", stderr: "" }));
+    io.on((c, a) => c === "git" && a.includes("ls-files"), () => ({ code: 0, stdout: "notes.md\0", stderr: "" }));
+    io.on(() => true, () => ({ code: 1, stdout: "", stderr: "" }));
+    const err = sink();
+    expect(await main(["capture", "--out", "/tmp/c"], { io, stdout: sink(), stderr: err })).toBe(1);
+    expect(err.lines[0]).toBe("refusing to write the bundle: 1 secret-shaped string(s) — claude-config/notes.md:1 (anthropic-key)");
+    expect(io.writes).toEqual([]);
+  });
 });
