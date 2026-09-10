@@ -18,6 +18,7 @@ function benignHandlers(io: { on: (m: (c: string, a: string[]) => boolean, h: (c
   io.on((c) => c === "security", () => ({ code: 0, stdout: "tok\n", stderr: "" }));
   io.on((c) => c === "powershell", () => ({ code: 44, stdout: "", stderr: "" }));
   io.on((c, a) => c === "node" && a[0] === "--version", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+  io.on((c) => c === "bash", () => ({ code: 0, stdout: "", stderr: "" }));
 }
 
 function assertAllowedCall(call: { cmd: string; args: string[] }) {
@@ -31,6 +32,7 @@ function assertAllowedCall(call: { cmd: string; args: string[] }) {
   if (cmd === "powershell") return;      // read-only PasswordVault/$PROFILE probes
   if (cmd === "ssh") return;             // BatchMode auth probe
   if (cmd === "node") { expect(args[0]).toBe("--version"); return; }
+  if (cmd === "bash") { expect(args[0]).toMatch(/sync-memory$/); expect(args.at(-1)).toBe("list"); return; }
   throw new Error(`detect/verify made an unexpected exec call: ${cmd} ${JSON.stringify(args)}`);
 }
 
