@@ -85,7 +85,7 @@ Invariants, enforced by the interface and the unit-test contract:
 
 1. `detect` and `verify` never write.
 2. `apply` runs only steps that `plan` produced; the UI shows those steps first.
-3. Adopt, never clobber: a differing file is reported `drifted` with a diff and left alone.
+3. Adopt, never clobber: a differing file is reported `drifted` with a diff and left alone. Files an artifact generates under its own directory (e.g. `~/.config/boot-slapper/`) are owned by the artifact and regenerated when they differ; the adopt-never-clobber rule applies to user-owned files (rc files, `~/.claude`, `settings.json`).
 4. No secret value appears in any `Step`'s rendered text; steps carry a `SecretRef` resolved inside `apply`.
 5. `non-transferable` artifacts have no `apply`; their `plan` renders instructions.
 6. Re-running `apply` on a satisfied artifact produces an empty plan (idempotency).
@@ -120,7 +120,7 @@ Flags: `--profile <name>` (default `aca34`), `--auto` (headless; skips steps fla
 ### SecretStore
 
 ```ts
-type SecretRef = { service: "cornell-ai-gateway" | "mecp-device-token" | "mct-sync-token"; account: string };
+type SecretRef = { service: "cornell-ai-gateway" | "mecp-device-token" | "mecp-api-key" | "mct-sync-token"; account: string };
 interface SecretStore {
   get(ref): Promise<string | null>;
   set(ref, value): Promise<void>;   // value from a hidden prompt, never argv
@@ -133,6 +133,7 @@ interface SecretStore {
 | darwin | login Keychain via `security add/find-generic-password` — the exact items `claude-gw.zsh` reads today; nothing migrates on the current mac |
 | win32 | Windows Credential Manager via PowerShell `[Windows.Security.Credentials.PasswordVault]` (user-scoped, DPAPI). `cmdkey` cannot read values back, so it is not used. Replaces the user-scope env-var home documented in dotfiles |
 | linux | `secret-tool` if present, else `~/.config/boot-slapper/secrets` mode 600 — fallback only |
+| any | `~/.config/mecp/api_key` (mode 600) for `mecp-api-key` only — the file is the contract `load-mecp-context.mjs` reads (bootstrap.sh step 5) |
 
 Doctor reports presence per store, never values. Desktop and Code read the same
 three secrets — one prompt, two surfaces.

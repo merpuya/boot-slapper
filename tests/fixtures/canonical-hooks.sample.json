@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Write", "hooks": [ { "type": "command", "command": "node \"$HOME/.claude/scripts/pretool-write-untracked-guard.mjs\"", "timeout": 5 } ] },
+      { "hooks": [ { "type": "command", "command": "[ -x \"$HOME/.config/iterm2/cc-status\" ] || exit 0; exec \"$HOME/.config/iterm2/cc-status\"", "platforms": ["darwin"] } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "[ -x \"$HOME/.config/iterm2/cc-status\" ] || exit 0; exec \"$HOME/.config/iterm2/cc-status\"", "platforms": ["darwin"] } ] }
+    ],
+    "SessionStart": [
+      { "matcher": "startup", "hooks": [
+        { "type": "command", "command": "$HOME/.claude/scripts/dotclaude-self-update.sh", "timeout": 15 },
+        { "type": "command", "command": "node \"$HOME/.claude/scripts/memory-auto-sync.mjs\" start", "timeout": 30 }
+      ] }
+    ]
+  }
+}
