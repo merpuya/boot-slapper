@@ -2,10 +2,12 @@ import type { Artifact, Check, Ctx, State } from "../engine/artifact.ts";
 import { desktopAppPath } from "../engine/env.ts";
 import type { Io } from "../engine/io.ts";
 
-export async function nodeVersion(io: Io): Promise<{ major: number; minor: number } | null> {
+export async function nodeVersion(io: Io): Promise<{ major: number; minor: number; raw: string } | null> {
   const r = await io.exec("node", ["--version"]);
-  const m = /^v(\d+)\.(\d+)/.exec(r.stdout.trim());
-  return r.code === 0 && m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+  if (r.code !== 0) return null;
+  const raw = r.stdout.trim();
+  const m = /^v(\d+)\.(\d+)/.exec(raw);
+  return m ? { major: Number(m[1]), minor: Number(m[2]), raw } : null;
 }
 
 const CLAUDE_HINT = "native installer: curl -fsSL https://claude.ai/install.sh | bash  (→ ~/.local/bin/claude; then run `claude` once)";
@@ -18,12 +20,10 @@ async function checks(ctx: Ctx): Promise<Check[]> {
   }
   const py = (await io.which("python3")) ?? (await io.which("python"));
   out.push(py ? { id: "python", status: "ok", message: `prereq: python (${py})` } : { id: "python", status: "error", message: "prereq missing: python3/python" });
-  const nodeRaw = (await io.which("node")) ? (await io.exec("node", ["--version"])).stdout.trim() : "";
-  const nv = /^v(\d+)\.(\d+)/.exec(nodeRaw);
-  const [major, minor] = nv ? [Number(nv[1]), Number(nv[2])] : [0, 0];
+  const nv = (await io.which("node")) ? await nodeVersion(io) : null;
   if (!nv) out.push({ id: "node", status: "error", message: "prereq missing: node ≥ 22.5" });
-  else if (major > 22 || (major === 22 && minor >= 5)) out.push({ id: "node", status: "ok", message: `prereq: node ${nodeRaw}` });
-  else out.push({ id: "node", status: "error", message: `node ${nodeRaw} < 22.5 — upgrade node` });
+  else if (nv.major > 22 || (nv.major === 22 && nv.minor >= 5)) out.push({ id: "node", status: "ok", message: `prereq: node ${nv.raw}` });
+  else out.push({ id: "node", status: "error", message: `node ${nv.raw} < 22.5 — upgrade node` });
   out.push((await io.which("claude")) ? { id: "claude", status: "ok", message: "prereq: claude" } : { id: "claude", status: "warn", message: `claude not found — ${CLAUDE_HINT}` });
   const app = desktopAppPath(env.os, env.home);
   out.push((await io.exists(app)) ? { id: "desktop", status: "ok", message: `Claude Desktop: ${app}` } : { id: "desktop", status: "warn", message: `Claude Desktop not found at ${app} — install from https://claude.com/download` });

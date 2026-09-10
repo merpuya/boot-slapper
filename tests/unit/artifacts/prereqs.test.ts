@@ -33,4 +33,9 @@ describe("prereqs", () => {
     io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
     expect((await prereqs.verify(ctx)).find((c) => c.id === "python")).toMatchObject({ status: "ok" });
   });
+  it("treats a node that exits non-zero as missing even if it prints a version", async () => {
+    const { ctx, io } = await makeCtx({ path: allTools });
+    io.on((c) => c === "node", () => ({ code: 1, stdout: "v22.12.0\n", stderr: "broken shim" }));
+    expect((await prereqs.verify(ctx)).find((c) => c.id === "node")).toMatchObject({ status: "error", message: "prereq missing: node ≥ 22.5" });
+  });
 });
