@@ -85,7 +85,7 @@ Invariants, enforced by the interface and the unit-test contract:
 
 1. `detect` and `verify` never write.
 2. `apply` runs only steps that `plan` produced; the UI shows those steps first.
-3. Adopt, never clobber: a differing file is reported `drifted` with a diff and left alone.
+3. Adopt, never clobber: a differing file is reported `drifted` with a diff and left alone. Files an artifact generates under its own directory (e.g. `~/.config/boot-slapper/`) are owned by the artifact and regenerated when they differ; the adopt-never-clobber rule applies to user-owned files (rc files, `~/.claude`, `settings.json`).
 4. No secret value appears in any `Step`'s rendered text; steps carry a `SecretRef` resolved inside `apply`.
 5. `non-transferable` artifacts have no `apply`; their `plan` renders instructions.
 6. Re-running `apply` on a satisfied artifact produces an empty plan (idempotency).

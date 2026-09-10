@@ -3092,6 +3092,11 @@ git commit -m "chore: CI matrix, README, spec: mecp-api-key secret service"
 4. Ink TUI: Plan / Apply / Doctor screens over the same events; `tests/parity/skins.test.ts` diffs `doctor --json` after a TUI-driven and a headless run.
 5. `bs capture --out <dir>`: manifest schema 1, allowlist-driven `claude-config/`, `plugins.json`, `memory/` logical tree, `instructions.md`, secret scan refusing `sk-`/`Bearer `/token-shaped strings.
 6. `install.sh` / `install.ps1` fresh-box shims (node ≥ 22.5 via brew/winget, clone, `npm ci && npm run build`, exec `bs onboard`).
+7. Deferred from the Phase 1 final-review fix wave (cheap engine/UI cleanups, not required for gate 1):
+   - `State.facts` structured channel so `plan()` stops parsing detail strings; export detail-prefix constants meanwhile.
+   - `PlanEntry.opts` so `applyPlan` never reads `ctx.opts`; per-artifact required-option asserts.
+   - Drop/`blocked`-mark cross-surface `requires` edges instead of throwing in `resolveOrder`; dedupe `requires`.
+   - `tsconfig` typecheck for `tests/`; `runLogWriter` chain guard + append-only writes; `_writeToOutput` missing-method guard; non-44 exit codes surfaced in doctor; `doctor --json` redaction before committing as evidence; `BS_REQUIRE_PARITY=1`; `homeRel` path-boundary check; `gateway-launch` runner-specific detail text and `.bak` before overwriting a differing wrapper.
 
 **Phase 3 — desktop + cutover**
 1. Spike S1 (Desktop 3P config via user defaults / HKCU vs managed prefs) → `docs/spikes/s1-desktop-config.md`.
