@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { parseArgs } from "node:util";
-import type { Ctx } from "./engine/artifact.ts";
+import { InteractiveRequired, type Ctx } from "./engine/artifact.ts";
 import { probeEnv, resolveEnv } from "./engine/env.ts";
 import type { EngineEvent } from "./engine/events.ts";
 import { RealIo, type Io } from "./engine/io.ts";
@@ -43,7 +43,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   } catch (e) { stderr.write(String(e instanceof Error ? e.message : e)); stderr.write(USAGE); return 2; }
 
   const profile = PROFILES[String(values.profile)];
-  if (!profile && cmd !== "env") { stderr.write(`unknown profile: ${String(values.profile)}`); return 2; }
+  if (!profile && cmd !== "env") { stderr.write(`unknown profile: ${String(values.profile)}`); stderr.write(USAGE); return 2; }
   const list = (v: unknown) => (typeof v === "string" && v ? v.split(",").map((s) => s.trim()) : undefined);
   const filter = { only: list(values.only), skip: list(values.skip) };
   const interactive = deps.interactive ?? (!values.auto && Boolean(process.stdin.isTTY));
@@ -89,7 +89,12 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
         stdout.write(`${svc}: ${present ? "present" : "missing"} (${ctx.secrets.describe(ref)})`);
         return present ? 0 : 1;
       }
-      const value = (await ctx.prompt.secret(`Paste ${svc}`)).trim();
+      let value: string;
+      try { value = (await ctx.prompt.secret(`Paste ${svc}`)).trim(); }
+      catch (e) {
+        if (e instanceof InteractiveRequired) { stderr.write(`bs secrets set needs an interactive terminal (${e.message})`); return 2; }
+        throw e;
+      }
       if (!value) { stderr.write("blank — nothing stored"); return 1; }
       await ctx.secrets.set(ref, value);
       stdout.write(`${svc}: stored (${ctx.secrets.describe(ref)})`);

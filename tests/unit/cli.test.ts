@@ -43,4 +43,17 @@ describe("bs cli", () => {
     expect(await main(["secrets", "check", "cornell-ai-gateway"], { io, stdout: out, stderr: sink() })).toBe(1);
     expect(out.lines[0]).toBe("cornell-ai-gateway: missing (login Keychain item service=cornell-ai-gateway account=aca34)");
   });
+  it("unknown profile prints usage on stderr and exits 2", async () => {
+    const err = sink();
+    expect(await main(["plan", "--profile", "nope"], { io: new FakeIo(), stdout: sink(), stderr: err })).toBe(2);
+    expect(err.lines[0]).toBe("unknown profile: nope");
+    expect(err.lines.join("\n")).toMatch(/usage/i);
+  });
+  it("secrets set without a terminal exits 2 with a message, never throws", async () => {
+    const err = sink();
+    const io = new FakeIo({ env: { USER: "aca34" } });
+    expect(await main(["secrets", "set", "cornell-ai-gateway"], { io, stdout: sink(), stderr: err, interactive: false })).toBe(2);
+    expect(err.lines[0]).toMatch(/interactive terminal/);
+    expect(io.calls).toHaveLength(0);
+  });
 });
