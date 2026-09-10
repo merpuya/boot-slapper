@@ -1,5 +1,6 @@
 import type { Io } from "../io.ts";
 import type { SecretRef, SecretStore } from "./store.ts";
+import { assertSafeRef } from "./ref.ts";
 
 const ps = (s: string) => s.replace(/'/g, "''");
 const PRELUDE = `[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]\n$v = New-Object Windows.Security.Credentials.PasswordVault\n`;
@@ -11,6 +12,7 @@ export class PasswordVaultStore implements SecretStore {
     return this.io.exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", "-"], { stdin: PRELUDE + script });
   }
   async get(ref: SecretRef): Promise<string | null> {
+    assertSafeRef(ref);
     const r = await this.run(
       `try { $c = $v.Retrieve('${ps(ref.service)}','${ps(ref.account)}'); $c.RetrievePassword(); Write-Output $c.Password } catch { exit 44 }\n`,
     );
@@ -19,6 +21,7 @@ export class PasswordVaultStore implements SecretStore {
     return v.length ? v : null;
   }
   async set(ref: SecretRef, value: string): Promise<void> {
+    assertSafeRef(ref);
     const r = await this.run(
       `try { $old = $v.Retrieve('${ps(ref.service)}','${ps(ref.account)}'); $v.Remove($old) } catch {}\n` +
       `$v.Add((New-Object Windows.Security.Credentials.PasswordCredential('${ps(ref.service)}','${ps(ref.account)}','${ps(value)}')))\n`,

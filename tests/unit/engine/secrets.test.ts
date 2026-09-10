@@ -34,6 +34,11 @@ describe("KeychainStore", () => {
   it("describe names the Keychain item", () => {
     expect(new KeychainStore(new FakeIo()).describe(ref)).toBe("login Keychain item service=cornell-ai-gateway account=aca34");
   });
+  it("rejects a service/account with shell-significant characters before touching security", async () => {
+    const io = new FakeIo();
+    await expect(new KeychainStore(io).set({ service: "cornell-ai-gateway", account: "a b\ndelete-keychain" }, "v")).rejects.toThrow(/account contains characters/);
+    expect(io.calls).toHaveLength(0);
+  });
 });
 
 describe("PasswordVaultStore", () => {
@@ -63,7 +68,7 @@ describe("PasswordVaultStore", () => {
 describe("FileStore", () => {
   it("writes <dir>/<service> mode 600 and reads it back trimmed", async () => {
     const io = new FakeIo();
-    const s = new FileStore(io, "/h/.config/boot-slapper/secrets");
+    const s = new FileStore(io, "darwin", "/h/.config/boot-slapper/secrets");
     expect(await s.get(ref)).toBeNull();
     await s.set(ref, "v");
     expect(io.files.get("/h/.config/boot-slapper/secrets/cornell-ai-gateway")).toBe("v\n");
@@ -85,5 +90,14 @@ describe("selectStore", () => {
     expect(defaultAccount(new FakeIo({ env: { USER: "aca34" } }))).toBe("aca34");
     expect(defaultAccount(new FakeIo({ env: { USERNAME: "aca34w" } }))).toBe("aca34w");
     expect(defaultAccount(new FakeIo())).toBe("user");
+  });
+  it("linux: falls back to the file store under ~/.config/boot-slapper/secrets", async () => {
+    const io = new FakeIo({ platform: "linux" });
+    const env = resolveEnv(await probeEnv(io), "gateway", "code");
+    const store = selectStore(env, io);
+    await store.set(ref, "v");
+    expect(io.files.get("/h/.config/boot-slapper/secrets/cornell-ai-gateway")).toBe("v\n");
+    expect(io.modes.get("/h/.config/boot-slapper/secrets/cornell-ai-gateway")).toBe(0o600);
+    expect(store.describe(ref)).toBe("file /h/.config/boot-slapper/secrets/cornell-ai-gateway (mode 600)");
   });
 });
