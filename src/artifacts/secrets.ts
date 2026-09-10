@@ -11,6 +11,9 @@ export const SECRET_SEVERITY: Record<SecretService, "error" | "warn"> = {
   "cornell-ai-gateway": "error", "mecp-device-token": "warn", "mecp-api-key": "warn", "mct-sync-token": "warn",
 };
 
+// detect formats details with this separator and plan parses them back — State.details is the only channel between the two (engine/artifact.ts), so the separator must be shared.
+export const MISSING_SEP = " missing — ";
+
 const ID = "secrets";
 const refs = (ctx: Ctx): SecretRef[] => {
   const services = ((ctx.opts as { services?: SecretService[] }).services ?? []);
@@ -29,13 +32,13 @@ export const secrets: Artifact = {
 
   async detect(ctx): Promise<State> {
     const m = await missing(ctx);
-    return m.length ? { kind: "absent", details: m.map((r) => `${r.service} missing — ${ctx.secrets.describe(r)}`) } : { kind: "present" };
+    return m.length ? { kind: "absent", details: m.map((r) => `${r.service}${MISSING_SEP}${ctx.secrets.describe(r)}`) } : { kind: "present" };
   },
 
   plan(ctx, state): Step[] {
     if (state.kind !== "absent") return [];
     const account = defaultAccount(ctx.io);
-    return (state.details ?? []).map((d) => d.split(" missing — ")[0] as SecretService).map((service) => ({
+    return (state.details ?? []).map((d) => d.split(MISSING_SEP)[0] as SecretService).map((service) => ({
       id: `${ID}.${service}`, title: SECRET_LABELS[service], interactive: true, secret: { service, account },
     }));
   },
