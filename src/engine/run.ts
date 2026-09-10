@@ -37,8 +37,11 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
     }
     const upstream = artifact.requires.find((r) => bad.has(r));
     if (upstream) {
-      bad.set(artifact.id, `requires "${upstream}"`);
-      ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: `requires "${upstream}" which ${bad.get(upstream) === "blocked" ? "is blocked" : "failed"}` });
+      const stored = bad.get(upstream)!;
+      const describe = stored === "blocked" ? "is blocked" : stored === "failed" ? "failed" : `was skipped (${stored})`;
+      const reason = `requires "${upstream}" which ${describe}`;
+      bad.set(artifact.id, reason);
+      ctx.emit({ type: "artifact:skipped", id: artifact.id, reason });
       res.skipped.push(artifact.id);
       continue;
     }
@@ -64,7 +67,10 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
     }
     if (failed) { bad.set(artifact.id, "failed"); res.failed.push(artifact.id); }
     else if (runnable.length > 0) res.applied.push(artifact.id);
-    else res.unchanged.push(artifact.id);
+    else if (entry.steps.length > 0) {
+      ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: "all steps need an interactive session" });
+      res.skipped.push(artifact.id);
+    } else res.unchanged.push(artifact.id);
   }
   for (const entry of plan) {
     const c = withOpts(ctx, (ctx.opts as Record<string, Record<string, unknown>>)[entry.artifact.id]);

@@ -14,9 +14,24 @@ export async function resolvePlan(profile: Profile, ctx: Ctx, filter: { only?: s
   const plan: Plan = [];
   for (const artifact of selectArtifacts(profile, filter)) {
     const c = withOpts(ctx, profile.options[artifact.id]);
-    const state = await artifact.detect(c);
+    let state: State;
+    try {
+      state = await artifact.detect(c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      state = { kind: "blocked", reason: `detect threw: ${msg}` };
+    }
+    let steps: Step[] = [];
+    if (state.kind !== "blocked") {
+      try {
+        steps = artifact.plan(c, state);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        state = { kind: "blocked", reason: `plan threw: ${msg}` };
+        steps = [];
+      }
+    }
     ctx.emit({ type: "artifact:detected", id: artifact.id, state });
-    const steps = state.kind === "blocked" ? [] : artifact.plan(c, state);
     plan.push({ artifact, state, steps });
   }
   return plan;

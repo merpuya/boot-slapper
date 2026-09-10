@@ -23,11 +23,18 @@ async function makeCtx(interactive = false): Promise<{ ctx: Ctx; events: EngineE
   return { ctx, events };
 }
 
-function art(id: string, o: { requires?: string[]; absent?: boolean; steps?: Step[]; failOn?: string; applied?: string[]; verifyThrows?: boolean }): Artifact {
+function art(id: string, o: { requires?: string[]; absent?: boolean; blocked?: boolean; detectThrows?: boolean; planThrows?: boolean; steps?: Step[]; failOn?: string; applied?: string[]; verifyThrows?: boolean }): Artifact {
   return {
     id, requires: o.requires ?? [], surfaces: ["code"], portability: "portable",
-    detect: async () => (o.absent ? { kind: "absent" } : { kind: "present" }),
-    plan: (_c, s) => (s.kind === "absent" ? (o.steps ?? [{ id: `${id}.do`, title: `do ${id}` }]) : []),
+    detect: async () => {
+      if (o.detectThrows) throw new Error(`detect boom ${id}`);
+      if (o.blocked) return { kind: "blocked", reason: `${id} is blocked` };
+      return o.absent ? { kind: "absent" } : { kind: "present" };
+    },
+    plan: (_c, s) => {
+      if (o.planThrows) throw new Error(`plan boom ${id}`);
+      return s.kind === "absent" ? (o.steps ?? [{ id: `${id}.do`, title: `do ${id}` }]) : [];
+    },
     apply: async (_c, steps) => {
       for (const s of steps) { if (s.id === o.failOn) throw new Error(`boom ${s.id}`); o.applied?.push(s.id); }
     },
@@ -57,6 +64,27 @@ describe("resolvePlan", () => {
     const { ctx } = await makeCtx();
     const d: Artifact = { ...art("d", {}), surfaces: ["desktop"] };
     expect((await resolvePlan(profile([art("a", {}), d]), ctx)).map((e) => e.artifact.id)).toEqual(["a"]);
+  });
+  it("a throwing detect yields blocked and its sibling still plans normally", async () => {
+    const { ctx, events } = await makeCtx();
+    const a = art("a", { detectThrows: true });
+    const b = art("b", { absent: true });
+    const plan = await resolvePlan(profile([a, b]), ctx);
+    expect(plan.map((p) => [p.artifact.id, p.state])).toEqual([
+      ["a", { kind: "blocked", reason: "detect threw: detect boom a" }],
+      ["b", { kind: "absent" }],
+    ]);
+    expect(plan[0].steps).toEqual([]);
+    expect(events.filter((e) => e.type === "artifact:detected")).toHaveLength(2);
+  });
+  it("a throwing plan yields blocked and its sibling still plans normally", async () => {
+    const { ctx } = await makeCtx();
+    const a = art("a", { absent: true, planThrows: true });
+    const b = art("b", { absent: true });
+    const plan = await resolvePlan(profile([a, b]), ctx);
+    expect(plan[0]).toMatchObject({ state: { kind: "blocked", reason: "plan threw: plan boom a" }, steps: [] });
+    expect(plan[1]).toMatchObject({ state: { kind: "absent" } });
+    expect(plan[1].steps.length).toBeGreaterThan(0);
   });
 });
 
@@ -104,6 +132,26 @@ describe("applyPlan", () => {
     expect(res.unchanged).toEqual(["a"]);
     expect(res.applied).toEqual(["b"]);
     expect(res.applied.length + res.failed.length + res.skipped.length + res.unchanged.length).toBe(plan.length);
+  });
+  it("a three-deep chain: blocked prereqs → skipped b → c's reason mentions 'was skipped'", async () => {
+    const { ctx, events } = await makeCtx();
+    const prereqs = art("prereqs", { blocked: true });
+    const b = art("b", { requires: ["prereqs"] });
+    const c = art("c", { requires: ["b"] });
+    const res = await applyPlan(await resolvePlan(profile([prereqs, b, c]), ctx), ctx);
+    expect(res.skipped).toEqual(["prereqs", "b", "c"]);
+    const skippedEvents = events.filter((e) => e.type === "artifact:skipped") as Extract<EngineEvent, { type: "artifact:skipped" }>[];
+    expect(skippedEvents.find((e) => e.id === "b")?.reason).toBe('requires "prereqs" which is blocked');
+    expect(skippedEvents.find((e) => e.id === "c")?.reason).toMatch(/was skipped/);
+  });
+  it("an artifact whose only steps are interactive-and-headless-filtered is skipped, not unchanged", async () => {
+    const { ctx, events } = await makeCtx(false);
+    const a = art("a", { absent: true, steps: [{ id: "a.ask", title: "ask", interactive: true }] });
+    const res = await applyPlan(await resolvePlan(profile([a]), ctx), ctx);
+    expect(res.unchanged).toEqual([]);
+    expect(res.skipped).toEqual(["a"]);
+    expect(events).toContainEqual({ type: "artifact:skipped", id: "a", reason: "all steps need an interactive session" });
+    expect(res.applied.length + res.failed.length + res.skipped.length + res.unchanged.length).toBe(1);
   });
   it("warns, but proceeds, when --only cuts a requires edge", async () => {
     const { ctx, events } = await makeCtx();
