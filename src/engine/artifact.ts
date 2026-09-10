@@ -21,6 +21,8 @@ export class InteractiveRequired extends Error {
 
 export interface Prompter {
   secret(label: string): Promise<string>;
+  /** Non-secret free text (device ids, logical names). Headless throws InteractiveRequired; a blank answer returns `fallback`. */
+  text(label: string, fallback?: string): Promise<string>;
   confirm(label: string): Promise<boolean>;
   gate(label: string): Promise<void>;
 }
@@ -31,6 +33,10 @@ export interface Ctx {
   emit(e: EngineEvent): void;
 }
 
+/** What `bs capture` writes for one artifact. `path` is bundle-relative with posix separators. */
+export interface BundleFile { path: string; content: string }
+export interface Bundle { files: BundleFile[]; instructions: string[] }
+
 export interface Artifact {
   id: string;
   surfaces: Surface[];
@@ -40,6 +46,8 @@ export interface Artifact {
   plan(ctx: Ctx, state: State): Step[];
   apply(ctx: Ctx, steps: Step[]): Promise<void>;
   verify(ctx: Ctx): Promise<Check[]>;
+  /** Read-only. device-bound / non-transferable artifacts may return instructions but never files (engine/capture.ts enforces it). */
+  capture?(ctx: Ctx): Promise<Bundle>;
 }
 
 export function withOpts(ctx: Ctx, opts: Record<string, unknown> | undefined): Ctx {

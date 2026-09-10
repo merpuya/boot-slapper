@@ -1,4 +1,4 @@
-import type { Artifact, Check, Ctx, State, Step } from "../engine/artifact.ts";
+import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { defaultAccount, type SecretRef, type SecretService } from "../engine/secrets/store.ts";
 
 export const SECRET_LABELS: Record<SecretService, string> = {
@@ -62,5 +62,9 @@ export const secrets: Artifact = {
         : { id: ref.service, status: SECRET_SEVERITY[ref.service], message: `${ref.service} missing — bs secrets set ${ref.service}  (${ctx.secrets.describe(ref)})` });
     }
     return out;
+  },
+
+  async capture(ctx): Promise<Bundle> {
+    return { files: [], instructions: refs(ctx).map((r) => `bs secrets set ${r.service} — ${SECRET_LABELS[r.service]}`) };
   },
 };

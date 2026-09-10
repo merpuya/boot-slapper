@@ -4,6 +4,7 @@ import { InteractiveRequired, type Prompter } from "../engine/artifact.ts";
 export function headlessPrompter(): Prompter {
   return {
     secret: async (l) => { throw new InteractiveRequired(l); },
+    text: async (l) => { throw new InteractiveRequired(l); },
     confirm: async (l) => { throw new InteractiveRequired(l); },
     gate: async (l) => { throw new InteractiveRequired(l); },
   };
@@ -26,6 +27,10 @@ function ask(question: string, hidden: boolean): Promise<string> {
 export function ttyPrompter(): Prompter {
   return {
     secret: (label) => ask(`    ${label} (blank to skip): `, true),
+    text: async (label, fallback) => {
+      const a = (await ask(`    ${label}${fallback ? ` [${fallback}]` : ""}: `, false)).trim();
+      return a || fallback || "";
+    },
     confirm: async (label) => /^y(es)?$/i.test((await ask(`    ${label} [y/N] `, false)).trim()),
     gate: async (label) => { await ask(`    ${label} — press Enter when done `, false); },
   };

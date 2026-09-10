@@ -190,6 +190,11 @@ Artifacts are written to whichever answer comes back, with the degraded path kep
   HTTP server entry with an `Authorization` header? If not, `desktop-mcp` writes an
   `mcp-remote` stdio bridge entry. The probe becomes the runtime capability check.
 
+**Amendments (2026-09-10, Phase 2):** row 6 — the mct sync token is delivered by seeding `~/.mct/config.json`
+(mode 600) and running a bare `mct onboard` (its repair pass), not `--token`: the no-secret-on-argv rule wins.
+Row 5 — the device config is extended append-only with newly discovered, guessable memory dirs; unguessable
+ones stay doctor warnings. Row 7 — a plugin the user disabled is reported, never re-enabled.
+
 ## 5. UI, install story, bundle
 
 ### Engine/UI boundary
@@ -211,7 +216,7 @@ This boundary is what a later Tauri/React shell attaches to.
 
 Ink over clack: the plan and doctor screens are tables updating in place, and Ink's
 component tree is the view-model a React shell reuses. Cost: React as a CLI
-dependency — accepted.
+dependency — accepted. Ink 7 / React 19 (2026-09-10). `--headless` opts out; `--auto`, piped stdin, and `CI` imply it.
 
 Headless parity is a test: every command runs under `--auto` with `CI=1`; the parity
 suite drives the profile through both skins and diffs `doctor --json`.

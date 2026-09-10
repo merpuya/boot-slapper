@@ -1,4 +1,4 @@
-import type { Artifact, Check, Ctx, State } from "../engine/artifact.ts";
+import type { Artifact, Bundle, Check, Ctx, State } from "../engine/artifact.ts";
 import { desktopAppPath } from "../engine/env.ts";
 import type { Io } from "../engine/io.ts";
 
@@ -40,4 +40,11 @@ export const prereqs: Artifact = {
   plan: () => [],
   async apply() {},
   verify: checks,
+  async capture(): Promise<Bundle> {
+    return { files: [], instructions: [
+      "git, curl, jq, python3 (or python) and node ≥ 22.5 on PATH — platform package manager (dotfiles Brewfile / winget-packages.json)",
+      `claude CLI — ${CLAUDE_HINT}`,
+      "Claude Desktop — https://claude.com/download (needed by the Phase 3 desktop artifacts)",
+    ] };
+  },
 };

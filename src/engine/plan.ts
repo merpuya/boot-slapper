@@ -1,7 +1,7 @@
 import { resolveOrder, withOpts, type Artifact, type Ctx, type State, type Step } from "./artifact.ts";
 import type { Profile } from "./profile.ts";
 
-export interface PlanEntry { artifact: Artifact; state: State; steps: Step[] }
+export interface PlanEntry { artifact: Artifact; state: State; steps: Step[]; opts: Record<string, unknown> }
 export type Plan = PlanEntry[];
 
 export function selectArtifacts(profile: Profile, filter: { only?: string[]; skip?: string[] } = {}): Artifact[] {
@@ -13,7 +13,8 @@ export function selectArtifacts(profile: Profile, filter: { only?: string[]; ski
 export async function resolvePlan(profile: Profile, ctx: Ctx, filter: { only?: string[]; skip?: string[] } = {}): Promise<Plan> {
   const plan: Plan = [];
   for (const artifact of selectArtifacts(profile, filter)) {
-    const c = withOpts(ctx, profile.options[artifact.id]);
+    const opts = profile.options[artifact.id] ?? {};
+    const c = withOpts(ctx, opts);
     let state: State;
     try {
       state = await artifact.detect(c);
@@ -32,7 +33,7 @@ export async function resolvePlan(profile: Profile, ctx: Ctx, filter: { only?: s
       }
     }
     ctx.emit({ type: "artifact:detected", id: artifact.id, state });
-    plan.push({ artifact, state, steps });
+    plan.push({ artifact, state, steps, opts });
   }
   return plan;
 }

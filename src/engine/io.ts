@@ -13,6 +13,7 @@ export interface Io {
   readonly hostname: string;
   readFile(p: string): Promise<string | null>;
   writeFile(p: string, s: string, opts?: { mode?: number }): Promise<void>;
+  appendFile(p: string, s: string, opts?: { mode?: number }): Promise<void>;
   copyFile(src: string, dst: string): Promise<void>;
   exists(p: string): Promise<boolean>;
   isDir(p: string): Promise<boolean>;
@@ -36,6 +37,10 @@ export class RealIo implements Io {
     await fs.mkdir(path.dirname(p), { recursive: true });
     await fs.writeFile(p, s, { encoding: "utf8", mode: opts?.mode });
     if (opts?.mode !== undefined) await fs.chmod(p, opts.mode);
+  }
+  async appendFile(p: string, s: string, opts?: { mode?: number }): Promise<void> {
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.appendFile(p, s, { encoding: "utf8", mode: opts?.mode });
   }
   async copyFile(src: string, dst: string): Promise<void> { await fs.copyFile(src, dst); }
   async exists(p: string): Promise<boolean> {
@@ -116,6 +121,7 @@ export class FakeIo implements Io {
     this.files = new Map(Object.entries(init.files ?? {}));
     this.dirs = new Set(init.dirs ?? []);
     for (const f of this.files.keys()) this.addParents(f);
+    for (const d of [...this.dirs]) this.addParents(d);
     this.pathMap = init.path ?? {};
   }
   private addParents(p: string) {
@@ -128,6 +134,9 @@ export class FakeIo implements Io {
   async writeFile(p: string, s: string, opts?: { mode?: number }) {
     this.files.set(p, s); this.addParents(p); this.writes.push(p);
     if (opts?.mode !== undefined) this.modes.set(p, opts.mode);
+  }
+  async appendFile(p: string, s: string, opts?: { mode?: number }) {
+    await this.writeFile(p, (this.files.get(p) ?? "") + s, opts);
   }
   async copyFile(src: string, dst: string) {
     const s = this.files.get(src); if (s === undefined) throw new Error(`ENOENT ${src}`);
