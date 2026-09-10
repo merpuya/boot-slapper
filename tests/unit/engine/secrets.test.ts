@@ -27,7 +27,8 @@ describe("KeychainStore", () => {
     await new KeychainStore(io).set(ref, "it's a secret");
     const call = io.calls[0];
     expect(call.args).toEqual(["-i"]);
-    expect(call.opts.stdin).toBe(`add-generic-password -U -s 'cornell-ai-gateway' -a 'aca34' -w 'it'\\''s a secret'\n`);
+    expect(call.opts.stdin).toBe(`add-generic-password -U -s cornell-ai-gateway -a aca34 -X ${Buffer.from("it's a secret", "utf8").toString("hex")}\n`);
+    expect(call.opts.stdin).not.toContain("it's a secret");
     expect(JSON.stringify(call.args)).not.toContain("secret");
   });
   it("describe names the Keychain item", () => {
