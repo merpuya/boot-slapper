@@ -23,7 +23,7 @@ function benignHandlers(io: { on: (m: (c: string, a: string[]) => boolean, h: (c
 
 function assertAllowedCall(call: { cmd: string; args: string[] }) {
   const { cmd, args } = call;
-  if (cmd === "git") { const sub = args[0] === "-C" ? args[2] : args[0]; expect(["rev-parse", "status", "ls-remote"]).toContain(sub); return; }
+  if (cmd === "git") { const sub = args[0] === "-C" ? args[2] : args[0]; expect(["rev-parse", "status", "ls-remote", "--exec-path"]).toContain(sub); return; }
   if (cmd === "security") { expect(args[0]).toBe("find-generic-password"); return; }   // any service — the value is read in-process and never written
   if (cmd === "powershell") return;      // read-only PasswordVault / $PROFILE / Get-AppxPackage probes
   if (cmd === "ssh") return;             // BatchMode auth probe

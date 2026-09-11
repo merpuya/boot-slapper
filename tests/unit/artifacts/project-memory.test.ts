@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bashPath, fwd, guessLogical, projectMemory } from "../../../src/artifacts/project-memory.ts";
+import { bashCmd, bashPath, fwd, guessLogical, projectMemory } from "../../../src/artifacts/project-memory.ts";
 import type { FakeIo } from "../../../src/engine/io.ts";
 import { makeCtx } from "../helpers.ts";
 
@@ -27,6 +27,40 @@ describe("guessLogical", () => {
     expect(fwd("C:\\Users\\t\\.claude\\projects\\x\\memory")).toBe("C:/Users/t/.claude/projects/x/memory");
     expect(bashPath("C:\\Users\\t\\projects\\claude-memory-sync\\bin\\sync-memory")).toBe("/c/Users/t/projects/claude-memory-sync/bin/sync-memory");
     expect(bashPath("/h/projects/claude-memory-sync/bin/sync-memory")).toBe("/h/projects/claude-memory-sync/bin/sync-memory");
+  });
+});
+
+describe("bashCmd", () => {
+  it("is the bare `bash` off Windows and makes no exec call", async () => {
+    const { io } = await makeCtx();
+    expect(await bashCmd(io, "darwin")).toBe("bash");
+    expect(await bashCmd(io, "linux")).toBe("bash");
+    expect(io.calls).toEqual([]);
+  });
+  it("win32: walks up from `git --exec-path` to <git root>\\bin\\bash.exe", async () => {
+    const { io } = await makeCtx({ platform: "win32", home: "C:\\Users\\t", files: { "C:\\Program Files\\Git\\bin\\bash.exe": "" } });
+    io.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    expect(await bashCmd(io, "win32")).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(io.calls).toEqual([expect.objectContaining({ cmd: "git", args: ["--exec-path"] })]);
+  });
+  it("win32: falls back to `bash` when git is missing or no bin\\bash.exe exists above exec-path", async () => {
+    const { io: noGit } = await makeCtx({ platform: "win32", home: "C:\\Users\\t" });
+    noGit.on((c) => c === "git", () => ({ code: 127, stdout: "", stderr: "spawn git ENOENT" }));
+    expect(await bashCmd(noGit, "win32")).toBe("bash");
+    const { io: noBash } = await makeCtx({ platform: "win32", home: "C:\\Users\\t" });
+    noBash.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    expect(await bashCmd(noBash, "win32")).toBe("bash");
+  });
+  it("win32 verify spawns the resolved bash for `sync-memory list`", async () => {
+    const home = "C:\\Users\\t"; const repo = `${home}\\projects\\claude-memory-sync`;
+    const { ctx, io } = await makeCtx({ platform: "win32", home, opts, dirs: [`${repo}\\.git`, `${repo}\\projects\\mecp`, `${home}\\.claude\\projects`], files: { "C:\\Program Files\\Git\\bin\\bash.exe": "", [`${repo}\\devices\\testbox.json`]: JSON.stringify({ device_label: "testbox", platform: "win32", mappings: {} }), [`${home}\\.claude\\scripts\\memory-auto-sync.mjs`]: "", [`${home}\\.claude\\scripts\\load-mecp-context.mjs`]: "" } });
+    io.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    io.on((c) => c.endsWith("bash.exe"), () => ({ code: 0, stdout: "", stderr: "" }));
+    const checks = await projectMemory.verify(ctx);
+    expect(checks.find((c) => c.id === "resolves")?.status).toBe("ok");
+    const spawn = io.calls.find((c) => c.cmd !== "git");
+    expect(spawn?.cmd).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(spawn?.args).toEqual(["/c/Users/t/projects/claude-memory-sync/bin/sync-memory", "--device", "testbox", "list"]);
   });
 });
 

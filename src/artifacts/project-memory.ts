@@ -23,6 +23,23 @@ export const bashPath = (p: string) => fwd(p).replace(/^([A-Za-z]):\//, (_m, d: 
 const norm = (p: string, os: string) => { const s = fwd(p).replace(/\/+$/, ""); return os === "win32" ? s.toLowerCase() : s; };
 const tail = (s: string) => s.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(" | ");
 
+/** Git Bash on win32: a stock Git-for-Windows install has only Git\cmd on PATH, where `bash` resolves to WSL or nothing.
+ *  `git --exec-path` → <root>/mingw64/libexec/git-core; sync-memory needs <root>\bin\bash.exe. Falls back to `bash`. */
+export async function bashCmd(io: Io, os: Os): Promise<string> {
+  if (os !== "win32") return "bash";
+  const r = await io.exec("git", ["--exec-path"], { timeout: 10_000 });
+  if (r.code !== 0) return "bash";
+  let dir = r.stdout.trim();
+  while (dir) {
+    const cand = pj(os, dir, "bin", "bash.exe");
+    if (await io.exists(cand)) return cand;
+    const up = path.win32.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return "bash";
+}
+
 /** Longest known logical name that is a substring of the encoded dir (install.sh took the first sorted match; longest avoids `mecp` shadowing `mecp-handoffs`). */
 export function guessLogical(encoded: string, known: string[]): string | null {
   let best: string | null = null;
@@ -128,10 +145,10 @@ export const projectMemory: Artifact = {
         }
         case `${ID}.sync`: {
           // Push FIRST: pull mirrors with --delete, and a box whose sync was dead-but-writing loses local-only memory to a pull-only start (2026-08-16).
-          const f = await facts(ctx); const bin = syncBin(f, env.os);
-          const push = await io.exec("bash", [bin, "--device", env.label, "push"], { timeout: 120_000 });
+          const f = await facts(ctx); const bin = syncBin(f, env.os); const bash = await bashCmd(io, env.os);
+          const push = await io.exec(bash, [bin, "--device", env.label, "push"], { timeout: 120_000 });
           if (push.code !== 0) ctx.emit({ type: "note", level: "warn", message: `${ID}: push exited ${push.code}${push.code === 3 ? " (conflicts — see <file>.conflict-<device> sidecars in the repo)" : ""}: ${tail(push.stderr)}` });
-          const pull = await io.exec("bash", [bin, "--device", env.label, "pull"], { timeout: 120_000 });
+          const pull = await io.exec(bash, [bin, "--device", env.label, "pull"], { timeout: 120_000 });
           if (pull.code !== 0) throw new Error(`sync-memory pull failed (exit ${pull.code}): ${tail(pull.stderr)}`);
           break;
         }
@@ -150,7 +167,7 @@ export const projectMemory: Artifact = {
     if (f.config === "invalid") { out.push({ id: "device-config", status: "error", message: `devices/${env.label}.json is not valid JSON — fix it by hand` }); return out; }
     if (f.config === null) { out.push({ id: "device-config", status: "error", message: `no device config for '${env.label}' — run bs onboard` }); return out; }
     out.push({ id: "device-config", status: "ok", message: `device config exists: devices/${env.label}.json` });
-    const r = await io.exec("bash", [syncBin(f, env.os), "--device", env.label, "list"], { timeout: 30_000 });
+    const r = await io.exec(await bashCmd(io, env.os), [syncBin(f, env.os), "--device", env.label, "list"], { timeout: 30_000 });
     out.push(r.code === 0 ? { id: "resolves", status: "ok", message: "sync-memory list resolves this device's config" } : { id: "resolves", status: "error", message: "sync-memory list failed — device config unresolvable" });
     const mappedN = Object.keys(f.config.mappings ?? {}).length;
     const un = f.unmapped.map((u) => u.encoded);
