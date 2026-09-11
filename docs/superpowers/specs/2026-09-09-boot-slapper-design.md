@@ -195,6 +195,17 @@ Artifacts are written to whichever answer comes back, with the degraded path kep
 Row 5 — the device config is extended append-only with newly discovered, guessable memory dirs; unguessable
 ones stay doctor warnings. Row 7 — a plugin the user disabled is reported, never re-enabled.
 
+**Amendments (2026-09-10, Phase 3 — see docs/spikes/2026-09-10-s1-*.md, s2-*.md):** row 8 — Desktop never reads user defaults; the
+per-user target is the `Claude-3p/configLibrary/` entry boot-slapper owns (nested v2 document), the gateway key is delivered by a
+credential helper (`inferenceCredentialHelper`), `disableAutoUpdates` is not written locally (the update group is managed-only when MDM
+sets it), and a managed source that sets any non-app-behavior key makes the artifact `blocked` with the in-app-window instructions.
+Row 9 — remote servers live in `managedMcpServers` of the same entry (`claude_desktop_config.json` is stdio-only); MeCP uses a
+headers helper, Open Brain `oauth: true`; no `mcp-remote` bridge. Row 10 — skills are copied into Cowork's
+`local-agent-mode-sessions/skills-plugin/<org>/<account>/skills/` and registered in its manifest; no symlinks, no `~/Documents/Claude`.
+Row 12 — skills, plugins, hooks and remote MCP do load in Cowork on 3P (feature matrix 2026-09-10); the row now lists the hosted
+connectors and the claude.ai-only features. §2 — `selectArtifacts` pulls off-surface `requires` in, so a desktop-only profile still
+runs `claude-config`. §5 bundle — `desktop-skills/` lands with row 10. §6 — gate-2 shims are staged in `docs/cutover/`.
+
 ## 5. UI, install story, bundle
 
 ### Engine/UI boundary
@@ -301,6 +312,7 @@ tests/
   parity/           # bs doctor --json vs bootstrap.sh --doctor; TUI vs headless
   fixtures/         # ~/.claude snapshots: fresh, adopted, drifted, windows-msys
 docs/spikes/        # S1, S2 findings
+docs/cutover/        # gate-2 shims + runbooks (staged, applied in the other repos at the gate)
 ```
 
 ### Error handling

@@ -1,6 +1,6 @@
 # boot-slapper
 
-Cross-platform onboarding for Claude Code (and, from Phase 3, Claude Desktop) against a
+Cross-platform onboarding for Claude Code (and Claude Desktop) against a
 third-party inference provider — first target: the Cornell AI gateway with no claude.ai
 sign-in. Supersedes `dotclaude/bootstrap.sh` and the `claude-gw.zsh` wrapper.
 
@@ -24,8 +24,16 @@ Fresh box:
     curl -fsSL https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.sh | bash
     irm https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.ps1 | iex
 
-Artifacts on the `code` surface (profile `aca34`): `prereqs`, `claude-config`, `secrets`, `gateway-launch`,
-`project-memory`, `mct`, `plugins`. The desktop surface is Phase 3.
+Gate-2 cutover material: `docs/cutover/`.
+
+Artifacts (profile `aca34`, surfaces `code` + `desktop`): `prereqs`, `claude-config`, `secrets`, `gateway-launch`,
+`project-memory`, `mct`, `plugins`, `desktop-inference`, `desktop-mcp`, `desktop-skills`, `open-brain-auth`, `hosted-connectors`.
+
+Claude Desktop (third-party mode): `bs onboard` writes one configuration named `boot-slapper` into Desktop's per-user config
+library (`~/Library/Application Support/Claude-3p/configLibrary/`, `%LOCALAPPDATA%\Claude-3p\configLibrary\`) — gateway provider,
+a credential helper that prints the key from the secret store, MeCP (headers helper) and Open Brain (OAuth) as managed connectors —
+and copies the listed dotclaude skills into Cowork's skills plugin. Quit Desktop before applying; relaunch and choose the third-party
+option afterwards. A device whose MDM profile sets more than the update/proxy keys is reported `blocked`: IT owns that configuration.
 
 Secrets live in the login Keychain (macOS) or Windows Credential Manager; `mecp-api-key` lives in
 `~/.config/mecp/api_key` because the SessionStart hook reads that file; `mct-sync-token` is copied into
@@ -40,4 +48,4 @@ appear on a command line.
     npm run test:parity              # gate 1: bs doctor vs ~/.claude/bootstrap.sh --doctor (skips without dotclaude)
     npm run build && node dist/cli.js plan
 
-Phase map and task-level plan: Phase 1 `docs/superpowers/plans/2026-09-09-boot-slapper-phase1-engine.md`, Phase 2 `docs/superpowers/plans/2026-09-10-boot-slapper-phase2-artifacts-tui.md`.
+Phase map and task-level plan: Phase 1 `docs/superpowers/plans/2026-09-09-boot-slapper-phase1-engine.md`, Phase 2 `docs/superpowers/plans/2026-09-10-boot-slapper-phase2-artifacts-tui.md`, Phase 3 `docs/superpowers/plans/2026-09-10-boot-slapper-phase3-desktop-cutover.md`.
