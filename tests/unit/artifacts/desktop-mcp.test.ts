@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { desktopMcp, wantedServers } from "../../../src/artifacts/desktop-mcp.ts";
-import { wantedDoc } from "../../../src/artifacts/desktop-inference.ts";
+import { desktopInference, wantedDoc } from "../../../src/artifacts/desktop-inference.ts";
+import { withOpts } from "../../../src/engine/artifact.ts";
 import { ENTRY_NAME } from "../../../src/engine/desktop.ts";
 import type { FakeIo } from "../../../src/engine/io.ts";
 import { makeCtx } from "../helpers.ts";
@@ -70,9 +71,42 @@ describe("desktop-mcp", () => {
     expect((await desktopMcp.detect(ctx)).kind).not.toBe("blocked");
   });
 
-  it("blocked without a boot-slapper entry (desktop-inference first), without the bundle, or while Desktop runs at apply time", async () => {
-    const noEntry = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
-    expect(await desktopMcp.detect(noEntry.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/desktop-inference/) });
+  // FR-1: resolvePlan runs every detect before applyPlan runs any step, so on a fresh box the entry does
+  // not exist yet even though desktop-inference is earlier in the same plan. Blocking here also dropped
+  // open-brain-auth (it requires desktop-mcp), so the runbook's second pass never reached either.
+  it("fresh box with no entry yet: absent (not blocked), both steps planned, and the servers step refuses if the entry really is missing", async () => {
+    const fresh = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
+    secrets(fresh.io);
+    const s = await desktopMcp.detect(fresh.ctx);
+    expect(s).toEqual({ kind: "absent", details: [
+      "no boot-slapper entry yet — desktop-inference creates it earlier in this run",
+      `headers helper absent or stale: mecp — will write ${HELPER}`,
+      "managed MCP servers differ: openbrain, mecp — will write them into the boot-slapper entry",
+    ] });
+    const steps = desktopMcp.plan(fresh.ctx, s);
+    expect(steps.map((x) => x.id)).toEqual(["desktop-mcp.helpers", "desktop-mcp.servers"]);
+    await expect(desktopMcp.apply(fresh.ctx, steps)).rejects.toThrow("no boot-slapper entry — desktop-inference must apply first");
+    expect(fresh.io.writes).toEqual([HELPER]);   // the helper step is independent of the entry
+  });
+
+  it("end to end on one box: desktop-inference applies its steps, then the previously planned desktop-mcp steps land and detect is present", async () => {
+    const fresh = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
+    secrets(fresh.io);
+    const inf = withOpts(fresh.ctx, { baseUrl: "https://gw" });
+    const mcp = withOpts(fresh.ctx, opts);
+    // both detects run first, as resolvePlan does
+    const infState = await desktopInference.detect(inf);
+    const mcpState = await desktopMcp.detect(mcp);
+    expect(mcpState.kind).toBe("absent");
+    await desktopInference.apply(inf, desktopInference.plan(inf, infState));
+    await desktopMcp.apply(mcp, desktopMcp.plan(mcp, mcpState));
+    const meta = JSON.parse(fresh.io.files.get(`${L}/_meta.json`)!) as { appliedId: string };
+    const doc = JSON.parse(fresh.io.files.get(`${L}/${meta.appliedId}.json`)!) as { mcp: { managedServers: unknown[] } };
+    expect(doc.mcp.managedServers).toEqual(expectedServers);
+    expect(await desktopMcp.detect(mcp)).toEqual({ kind: "present" });
+  });
+
+  it("blocked without the bundle, or while Desktop runs at apply time", async () => {
     const noBundle = await box({ "/h/.claude/mcp/gateway.json": "" });
     noBundle.io.files.delete("/h/.claude/mcp/gateway.json");
     expect(await desktopMcp.detect(noBundle.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/gateway\.json/) });

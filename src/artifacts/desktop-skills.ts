@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { sha256 } from "../engine/capture.ts";
-import { cfgGet, decodeAntDid, desktopDataDir, desktopInstall, ourEntry, readJson, readSidecar, writeSidecar, ORG_SENTINEL } from "../engine/desktop.ts";
+import { cfgGet, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, ourEntry, readJson, readSidecar, runningError, writeSidecar, ORG_SENTINEL } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
 import { walkFiles } from "../engine/walk.ts";
 
@@ -24,7 +24,7 @@ export function skillDescription(skillMd: string): string {
 }
 
 interface SkillFacts { name: string; src: string; files: string[]; hash: string; dst: string; inCowork: boolean; ownedHash: string | null; manifest: ManifestSkill | undefined }
-interface Facts { installed: boolean; ran3p: boolean; plugin: string; manifestPath: string; manifest: Manifest | null | "invalid"; skills: SkillFacts[]; missingSources: string[] }
+interface Facts { installed: boolean; running: boolean; ran3p: boolean; plugin: string; manifestPath: string; manifest: Manifest | null | "invalid"; skills: SkillFacts[]; missingSources: string[] }
 
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx; const o = ctx.opts as unknown as Opts;
@@ -52,7 +52,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
     const dst = pj(env.os, plugin, "skills", name);
     skills.push({ name, src, files, hash: sourceHash(entries), dst, inCowork: ran3p && (await io.isDir(dst)), ownedHash: owned[name] ?? null, manifest: manifest && manifest !== "invalid" ? manifest.skills.find((s) => s.name === name) : undefined });
   }
-  return { installed: install.installed, ran3p, plugin, manifestPath, manifest, skills, missingSources };
+  return { installed: install.installed, running: install.installed ? await desktopRunning(io, env.os) : false, ran3p, plugin, manifestPath, manifest, skills, missingSources };
 }
 const foreign = (s: SkillFacts) => s.ownedHash === null && (s.inCowork || s.manifest !== undefined);
 const stale = (s: SkillFacts) => s.ownedHash !== null && (s.ownedHash !== s.hash || !s.inCowork);
@@ -85,12 +85,16 @@ export const desktopSkills: Artifact = {
     return steps;
   },
 
+  // Both steps write into a Cowork-owned directory (and the manifest step read-modify-writes Cowork's own
+  // manifest.json), so they take the same "quit Desktop first" refusal as the config-library artifacts:
+  // Cowork rewrites the manifest from memory, and a running app would lose or clobber the added rows.
   async apply(ctx, steps) {
     const { io, env } = ctx;
     for (const s of steps) {
       if (s.id.startsWith(`${ID}.copy.`)) {
         const name = s.id.slice(`${ID}.copy.`.length);
         const f = await facts(ctx); const sk = f.skills.find((x) => x.name === name);
+        if (f.running) throw new Error(runningError(ID));
         if (!sk) throw new Error(`skill ${name} is not in the profile or has no files`);
         if (foreign(sk)) throw new Error(`skill ${name} exists in Cowork but was not written by boot-slapper — refusing to overwrite`);
         for (const rel of sk.files) {
@@ -102,6 +106,7 @@ export const desktopSkills: Artifact = {
         await writeSidecar(io, env.os, env.home, { skills: { ...(side.skills ?? {}), [name]: sk.hash } });
       } else if (s.id === `${ID}.manifest`) {
         const f = await facts(ctx);
+        if (f.running) throw new Error(runningError(ID));
         if (f.manifest === "invalid") throw new Error(`${f.manifestPath} is not valid JSON`);
         const m: Manifest = f.manifest ?? { lastUpdated: 0, skills: [] };
         let added = 0;

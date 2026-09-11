@@ -81,11 +81,15 @@ export const desktopMcp: Artifact = {
     if (f.bundle === null) return { kind: "blocked", reason: `${f.bundlePath} missing — it is a tracked dotclaude file; check the claude-config artifact` };
     if (f.bundle === "invalid") return { kind: "blocked", reason: `${f.bundlePath} is not valid JSON — fix it in dotclaude` };
     if (f.ours === "invalid") return { kind: "blocked", reason: "boot-slapper config-library entry is not valid JSON — see desktop-inference" };
-    if (f.ours === null) return { kind: "blocked", reason: `${D.entry} yet — desktop-inference must apply first` };
     for (const s of f.wanted.skipped) ctx.emit({ type: "note", level: "warn", message: `${ID}: skipping ${s}` });
     const details: string[] = [];
     for (const h of f.wanted.helpers) if (f.staleHelpers.includes(h.path)) details.push(`${D.helper} ${f.wanted.servers.find((s) => s.headersHelper === h.path)?.name ?? "?"} — will write ${h.path}`);
     if (!f.serversCurrent) details.push(`${D.servers} ${f.wanted.servers.map((s) => s.name).join(", ")} — will write them into the boot-slapper entry`);
+    // A missing entry is not a block: resolvePlan runs every detect before applyPlan runs any step, so on a
+    // fresh box desktop-inference has not created the entry yet even though it is in the same plan (and
+    // blocking here also dropped open-brain-auth, which requires this artifact). Plan the work; the servers
+    // apply step re-reads facts() and refuses if desktop-inference really did not run.
+    if (f.ours === null) details.unshift(`${D.entry} yet — desktop-inference creates it earlier in this run`);
     if (details.length && f.running) details.push(`${D.running} — quit it before applying (the configuration is read at launch)`);
     if (!details.length) return { kind: "present" };
     return f.current.length ? { kind: "drifted", details } : { kind: "absent", details };
@@ -111,7 +115,7 @@ export const desktopMcp: Artifact = {
         case `${ID}.servers`: {
           const f = await facts(ctx);
           if (f.running) throw new Error(runningError(ID));
-          if (!f.ours || f.ours === "invalid") throw new Error("no boot-slapper entry — run desktop-inference first");
+          if (!f.ours || f.ours === "invalid") throw new Error("no boot-slapper entry — desktop-inference must apply first");
           const mcp = { ...((f.ours.doc.mcp as Record<string, unknown>) ?? {}), managedServers: f.merged };
           await writeLibraryEntry(io, env.os, env.home, f.ours.id, { ...f.ours.doc, mcp });
           await writeSidecar(io, env.os, env.home, { servers: f.wanted.servers.map((x) => x.name) });

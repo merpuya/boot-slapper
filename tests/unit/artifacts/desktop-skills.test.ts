@@ -82,6 +82,20 @@ describe("desktop-skills", () => {
     expect(await desktopSkills.detect(ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/handoff/) });
   });
 
+  // FR-3: the manifest step read-modify-writes Cowork's own manifest.json, so it takes the same refusal
+  // the config-library artifacts take — Cowork rewrites that file from memory while it is running.
+  it("apply refuses to touch Cowork's plugin directory while Claude Desktop is running, and writes nothing", async () => {
+    const { ctx, io } = await base();
+    const s = await desktopSkills.detect(ctx);
+    const steps = desktopSkills.plan(ctx, s);
+    io.on((c) => c === "pgrep", () => ({ code: 0, stdout: "2590\n", stderr: "" }));
+    await expect(desktopSkills.apply(ctx, steps)).rejects.toThrow(/Claude Desktop is running — quit it/);
+    await expect(desktopSkills.apply(ctx, [steps.at(-1)!])).rejects.toThrow(/re-run bs onboard --only desktop-skills/);
+    expect(io.writes).toEqual([]);
+    expect(io.files.has(`${PLUGIN}/skills/mecp-conventions/SKILL.md`)).toBe(false);
+    expect(JSON.parse(io.files.get(`${PLUGIN}/manifest.json`)!).skills).toHaveLength(1);
+  });
+
   it("verify and capture", async () => {
     const { ctx, io } = await base();
     expect((await desktopSkills.verify(ctx)).map((c) => [c.id, c.status])).toEqual([["cowork", "ok"], ["skill.mecp-conventions", "error"], ["skill.handoff", "error"]]);
