@@ -6,6 +6,8 @@ import type { Io } from "./io.ts";
 export const ORG_SENTINEL = "00000000-0000-4000-8000-000000000001";
 export const MIN_DESKTOP_VERSION = "1.19367.0";     // managed http/sse/stdio MCP entries, static headers, helpers; registry hives no longer merged
 export const ENTRY_NAME = "boot-slapper";
+/** Shared "Desktop is running" refusal for artifacts that must not touch the config library while it might be read (Task 4 reuses this for desktop-mcp). */
+export const runningError = (artifactId: string) => `Claude Desktop is running — quit it (⌘Q / File → Exit) and re-run bs onboard --only ${artifactId}`;
 export const MSIX_FAMILY = "AnthropicPBC.Claude_fnn82j28hfe8t";
 /** A managed source that sets only these keeps the local config library in force (docs: mdm, "Update keys and managed precedence"). */
 export const APP_BEHAVIOR_KEYS: ReadonlySet<string> = new Set(["disableAutoUpdates", "autoUpdaterEnforcementHours", "updateViaUpdatesHost", "relaunchEnforcementHours", "configRecheckIntervalMinutes", "egressProxyUrl", "egressProxyPacUrl"]);
