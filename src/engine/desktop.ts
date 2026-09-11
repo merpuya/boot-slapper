@@ -16,6 +16,30 @@ const MANAGED_PLIST = "com.anthropic.claudefordesktop.plist";
 
 const localAppData = (io: Io, home: string) => io.env.LOCALAPPDATA ?? pj("win32", home, "AppData", "Local");
 
+/**
+ * `desktopInstall` and `managedSources` probe state that cannot change inside one `bs` run, but each is
+ * called once per desktop artifact *and* once per apply step — a single `bs doctor` ran `desktopInstall`
+ * ~10×, which on win32 is a `powershell Get-AppxPackage` with a 20 s timeout, plus up to two `reg query`
+ * per `managedSources`. Memoize both per `Io` (one process, one machine), keyed defensively on the os/home
+ * (or os/user) the call names. `desktopRunning` is deliberately never cached: apply steps re-check it after
+ * the plan screen, when the user may have just quit Desktop.
+ */
+const installCache = new WeakMap<Io, Map<string, Promise<DesktopInstall>>>();
+const sourcesCache = new WeakMap<Io, Map<string, Promise<ManagedSource[]>>>();
+
+function memo<T>(cache: WeakMap<Io, Map<string, Promise<T>>>, io: Io, key: string, probe: () => Promise<T>): Promise<T> {
+  let per = cache.get(io);
+  if (!per) { per = new Map(); cache.set(io, per); }
+  const hit = per.get(key);
+  if (hit) return hit;
+  const p = probe();
+  per.set(key, p);
+  return p;
+}
+
+/** Drop the memoized probes for one `Io`. For tests that mutate a fixture between two probes of the same fake. */
+export function resetDesktopProbeCache(io: Io): void { installCache.delete(io); sourcesCache.delete(io); }
+
 export function desktopDataDir(io: Io, os: Os, home: string): string {
   if (os === "darwin") return pj(os, home, "Library", "Application Support", "Claude-3p");
   if (os === "win32") return pj(os, localAppData(io, home), "Claude-3p");
@@ -27,7 +51,11 @@ export const sidecarPath = (os: Os, home: string) => pj(os, bsDir(os, home), "de
 
 export interface DesktopInstall { installed: boolean; path: string; version: string | null }
 
-export async function desktopInstall(io: Io, os: Os, home: string): Promise<DesktopInstall> {
+export function desktopInstall(io: Io, os: Os, home: string): Promise<DesktopInstall> {
+  return memo(installCache, io, `${os}\0${home}`, () => probeDesktopInstall(io, os, home));
+}
+
+async function probeDesktopInstall(io: Io, os: Os, home: string): Promise<DesktopInstall> {
   if (os === "darwin") {
     const app = "/Applications/Claude.app";
     if (!(await io.exists(app))) return { installed: false, path: app, version: null };
@@ -58,7 +86,15 @@ export function versionAtLeast(v: string | null, min: string): boolean {
 
 export interface ManagedSource { source: string; keys: string[]; readable: boolean }
 
-const plistKeys = (xml: string) => [...xml.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
+/**
+ * Top-level keys of a JSON object, `null` when the text is not one. `plutil -convert json` is used rather
+ * than `xml1` on purpose: scanning the XML for `<key>` also collected *nested* keys, so a managed profile
+ * carrying any dict/array under an app-behaviour key (e.g. `egressProxyUrl: { … }`) read as a takeover.
+ */
+const jsonTopLevelKeys = (s: string): string[] | null => {
+  try { const v = JSON.parse(s) as unknown; return typeof v === "object" && v !== null && !Array.isArray(v) ? Object.keys(v as Record<string, unknown>) : null; }
+  catch { return null; }
+};
 const regKeys = (out: string) => out.split(/\r?\n/).map((l) => /^\s{2,}(\S+)\s+REG_[A-Z_]+(?:\s|$)/.exec(l)?.[1]).filter((k): k is string => !!k && k !== "(Default)");
 const REG_ABSENT = /unable to find the specified registry key/i;
 
@@ -68,15 +104,20 @@ const REG_ABSENT = /unable to find the specified registry key/i;
  * failure, a reg-query failure other than "key not found", or invalid JSON) is still reported, with
  * `readable: false` and no keys — callers must not treat that as "this source sets nothing" (see managedTakeover).
  */
-export async function managedSources(io: Io, os: Os): Promise<ManagedSource[]> {
+export function managedSources(io: Io, os: Os): Promise<ManagedSource[]> {
+  return memo(sourcesCache, io, `${os}\0${io.env.USER ?? ""}`, () => probeManagedSources(io, os));
+}
+
+async function probeManagedSources(io: Io, os: Os): Promise<ManagedSource[]> {
   const out: ManagedSource[] = [];
   if (os === "darwin") {
     const user = io.env.USER ?? "";
     const paths = [user ? `/Library/Managed Preferences/${user}/${MANAGED_PLIST}` : null, `/Library/Managed Preferences/${MANAGED_PLIST}`].filter((p): p is string => !!p);
     for (const p of paths) {
       if (!(await io.exists(p))) continue;
-      const r = await io.exec("plutil", ["-convert", "xml1", "-o", "-", p], { timeout: 10_000 });   // managed plists are binary; plutil is read-only with -o -
-      out.push(r.code === 0 ? { source: p, keys: plistKeys(r.stdout), readable: true } : { source: p, keys: [], readable: false });
+      const r = await io.exec("plutil", ["-convert", "json", "-o", "-", p], { timeout: 10_000 });   // managed plists are binary; plutil is read-only with -o -
+      const keys = r.code === 0 ? jsonTopLevelKeys(r.stdout) : null;
+      out.push(keys ? { source: p, keys, readable: true } : { source: p, keys: [], readable: false });
     }
   } else if (os === "win32") {
     for (const hive of ["HKLM", "HKCU"]) {
@@ -128,12 +169,22 @@ export async function readJson(io: Io, p: string): Promise<Record<string, unknow
   try { const v = JSON.parse(s) as unknown; return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : "invalid"; } catch { return "invalid"; }
 }
 
-export async function readLibraryMeta(io: Io, os: Os, home: string): Promise<LibraryMeta | null | "invalid"> {
+/**
+ * The validated projection *and* the object exactly as parsed. `_meta.json` is Claude Desktop's file, not
+ * ours: it may carry keys this version does not model, top-level and on each entry. `upsertMeta` writes
+ * `raw` back so those survive; every other reader wants the normalized `meta`.
+ */
+export async function readLibraryMetaRaw(io: Io, os: Os, home: string): Promise<{ raw: Record<string, unknown>; meta: LibraryMeta } | null | "invalid"> {
   const j = await readJson(io, metaPath(io, os, home));
   if (j === null || j === "invalid") return j;
   const entries = Array.isArray(j.entries) ? (j.entries as Array<{ id?: unknown; name?: unknown }>) : null;
   if (typeof j.appliedId !== "string" || !entries || !entries.every((e) => typeof e?.id === "string" && typeof e?.name === "string")) return "invalid";
-  return { appliedId: j.appliedId, entries: entries.map((e) => ({ id: String(e.id), name: String(e.name) })) };
+  return { raw: j, meta: { appliedId: j.appliedId, entries: entries.map((e) => ({ id: String(e.id), name: String(e.name) })) } };
+}
+
+export async function readLibraryMeta(io: Io, os: Os, home: string): Promise<LibraryMeta | null | "invalid"> {
+  const r = await readLibraryMetaRaw(io, os, home);
+  return r === null || r === "invalid" ? r : r.meta;
 }
 
 export async function readLibraryEntry(io: Io, os: Os, home: string, id: string): Promise<Record<string, unknown> | null | "invalid"> {
@@ -183,14 +234,17 @@ export async function writeLibraryEntry(io: Io, os: Os, home: string, id: string
   await io.writeFile(entryPath(io, os, home, id), JSON.stringify(doc, null, 2) + "\n", { mode: 0o600 });
 }
 
+/** Adds our entry and (optionally) applies it, mutating the document *as parsed* so keys this version does not model — top-level and on the entries already there — are written back untouched. */
 export async function upsertMeta(io: Io, os: Os, home: string, entry: { id: string; name: string }, apply: boolean): Promise<void> {
-  const cur = await readLibraryMeta(io, os, home);
+  const cur = await readLibraryMetaRaw(io, os, home);
   if (cur === "invalid") throw new Error("configLibrary/_meta.json is not valid — fix it by hand (or delete the configLibrary directory to reset Desktop's local 3P configuration), then re-run");
-  const meta: LibraryMeta = cur ?? { appliedId: "", entries: [] };
-  if (!meta.entries.some((e) => e.id === entry.id)) meta.entries.push(entry);
-  if (apply || !meta.appliedId) meta.appliedId = entry.id;
+  const raw: Record<string, unknown> = cur?.raw ?? { appliedId: "", entries: [] };
+  const entries = (raw.entries as Array<Record<string, unknown>> | undefined) ?? [];
+  if (!entries.some((e) => e.id === entry.id)) entries.push({ ...entry });
+  raw.entries = entries;
+  if (apply || !raw.appliedId) raw.appliedId = entry.id;
   await io.mkdirp(configLibraryDir(io, os, home), { mode: 0o700 });
-  await io.writeFile(metaPath(io, os, home), JSON.stringify(meta, null, 2) + "\n", { mode: 0o600 });
+  await io.writeFile(metaPath(io, os, home), JSON.stringify(raw, null, 2) + "\n", { mode: 0o600 });
 }
 
 /** `ant-did` holds the 3P account uuid base64-encoded (docs: data-storage, "Identity"). */

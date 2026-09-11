@@ -29,7 +29,7 @@ function assertAllowedCall(call: { cmd: string; args: string[] }) {
   if (cmd === "ssh") return;             // BatchMode auth probe
   if (cmd === "node") { expect(args[0] === "--version" || (/dist[\\/]cli\.js$/.test(args[0]) && args[1] === "doctor")).toBe(true); return; }
   if (cmd === "bash") { expect(args[0]).toMatch(/sync-memory$/); expect(args.at(-1)).toBe("list"); return; }
-  if (cmd === "plutil") { expect(args.slice(0, 4)).toEqual(["-convert", "xml1", "-o", "-"]); return; }   // managed plist → xml on stdout
+  if (cmd === "plutil") { expect(args.slice(0, 4)).toEqual(["-convert", "json", "-o", "-"]); return; }   // managed plist → json on stdout (top-level keys only)
   if (cmd === "reg") { expect(args[0]).toBe("query"); return; }
   if (cmd === "pgrep" || cmd === "tasklist") return;   // is Desktop running
   throw new Error(`detect/verify made an unexpected exec call: ${cmd} ${JSON.stringify(args)}`);
@@ -69,9 +69,41 @@ describe("artifact contract: detect/verify never write and only run allowlisted 
           opts: aca34.options[artifact.id] ?? {},
         });
         benignHandlers(io);
-        io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict/></plist>", stderr: "" }));
+        io.on((c) => c === "plutil", () => ({ code: 0, stdout: "{}", stderr: "" }));
         const c = withOpts(ctx, aca34.options[artifact.id]);
         await artifact.detect(c);
+        await artifact.verify(c);
+        expect(io.writes).toEqual([]);
+        for (const call of io.calls) assertAllowedCall(call);
+        for (const f of io.fetches) expect(f.init.method ?? "GET", `${artifact.id} fetch ${f.url}`).toBe("GET");
+      });
+    }
+  });
+
+  // Third fixture: Desktop installed *and* an MDM profile present, so every artifact actually runs the
+  // `plutil` probe (managedSources only execs for a managed plist that exists). The profile sets
+  // app-behavior keys only — one with a nested dict — so no artifact may report a managed takeover.
+  describe("… with Claude Desktop installed and an app-behavior-only MDM profile", () => {
+    const MANAGED = "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist";
+    for (const artifact of aca34.artifacts) {
+      it(`${artifact.id}`, async () => {
+        const { ctx, io } = await makeCtx({
+          path: allTools,
+          dirs: ["/h/.claude", "/Applications/Claude.app"],
+          files: {
+            "/h/.config/mecp/api_key": "k\n",
+            "/Applications/Claude.app/Contents/Info.plist": "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>",
+            [MANAGED]: "bplist",
+          },
+          env: { USER: "aca34" },
+          opts: aca34.options[artifact.id] ?? {},
+        });
+        benignHandlers(io);
+        io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, autoUpdaterEnforcementHours: 24, egressProxyUrl: { host: "proxy.cornell.edu", port: 8080 } }), stderr: "" }));
+        const c = withOpts(ctx, aca34.options[artifact.id]);
+        const state = await artifact.detect(c);
+        if (artifact.id === "desktop-inference" || artifact.id === "desktop-mcp") expect(io.calls.some((x) => x.cmd === "plutil"), `${artifact.id} never probed the managed plist`).toBe(true);
+        expect(state.kind === "blocked" ? state.reason : "").not.toMatch(/managed configuration owns/);
         await artifact.verify(c);
         expect(io.writes).toEqual([]);
         for (const call of io.calls) assertAllowedCall(call);

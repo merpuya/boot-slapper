@@ -64,7 +64,7 @@ describe("desktop-mcp", () => {
     const oldVersion = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST.replace("1.49585.0", "1.5354.0"), "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
     expect(await desktopMcp.detect(oldVersion.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
     const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
-    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict><key>disableAutoUpdates</key><true/><key>inferenceProvider</key><string>vertex</string></dict></plist>", stderr: "" }));
+    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, inferenceProvider: "vertex" }), stderr: "" }));   // plutil -convert json
     expect(await desktopMcp.detect(managed.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\)/) });
     const { ctx } = await box();
     expect((await desktopMcp.detect(ctx)).kind).not.toBe("blocked");

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { FakeIo } from "../../../src/engine/io.ts";
 import {
   cfgGet, configLibraryDir, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, managedSources, managedTakeover,
-  ourEntry, readLibraryMeta, readSidecar, upsertMeta, versionAtLeast, writeLibraryEntry, writeSidecar, ENTRY_NAME,
+  ourEntry, readLibraryMeta, readSidecar, resetDesktopProbeCache, upsertMeta, versionAtLeast, writeLibraryEntry, writeSidecar, ENTRY_NAME,
 } from "../../../src/engine/desktop.ts";
 
-const PLIST = (keys: Record<string, string>) => `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>${Object.entries(keys).map(([k, v]) => `<key>${k}</key><${v === "true" || v === "false" ? v : "string"}${v === "true" || v === "false" ? "/>" : `>${v}</string>`}`).join("")}</dict></plist>\n`;
+// managedSources converts with `plutil -convert json`, so a stub returns the document as JSON — an XML
+// scan for <key> also picked up nested keys and read them as a managed takeover.
+const PLIST = (keys: Record<string, unknown>) => JSON.stringify(keys);
 const INFO = `<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string><key>CFBundleIdentifier</key><string>com.anthropic.claudefordesktop</string></dict></plist>`;
 
 describe("engine/desktop paths", () => {
@@ -45,15 +47,31 @@ describe("desktopInstall", () => {
 describe("managed sources", () => {
   it("darwin: converts each existing managed plist with plutil and lists its keys; only app-behavior keys → no takeover", async () => {
     const io = new FakeIo({ env: { USER: "aca34" }, files: { "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist", "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist": "bplist" } });
-    io.on((c, a) => c === "plutil" && a.includes("-convert"), ({ args }) => ({ code: 0, stdout: PLIST(args.at(-1)!.includes("/aca34/") ? { disableAutoUpdates: "true" } : { disableAutoUpdates: "true", autoUpdaterEnforcementHours: "24" }), stderr: "" }));
+    io.on((c, a) => c === "plutil" && a.includes("-convert"), ({ args }) => ({ code: 0, stdout: PLIST(args.at(-1)!.includes("/aca34/") ? { disableAutoUpdates: true } : { disableAutoUpdates: true, autoUpdaterEnforcementHours: 24 }), stderr: "" }));
     const s = await managedSources(io, "darwin");
     expect(s).toEqual([
       { source: "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates"], readable: true },
       { source: "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates", "autoUpdaterEnforcementHours"], readable: true },
     ]);
-    expect(io.calls.every((c) => c.cmd === "plutil" && c.args[0] === "-convert" && c.args[1] === "xml1" && c.args[2] === "-o" && c.args[3] === "-")).toBe(true);
+    expect(io.calls.every((c) => c.cmd === "plutil" && c.args[0] === "-convert" && c.args[1] === "json" && c.args[2] === "-o" && c.args[3] === "-")).toBe(true);
     expect(managedTakeover(s)).toBeNull();
     expect(managedTakeover([{ source: "x.plist", keys: ["disableAutoUpdates", "inferenceProvider"], readable: true }])).toBe("x.plist sets inferenceProvider");
+  });
+  it("darwin: only *top-level* keys count — a nested dict under an app-behavior key is not a takeover", async () => {
+    const p = "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist";
+    const io = new FakeIo({ env: { USER: "aca34" }, files: { [p]: "bplist" } });
+    io.on((c) => c === "plutil", () => ({ code: 0, stdout: PLIST({ disableAutoUpdates: true, egressProxyUrl: { nested: 1 } }), stderr: "" }));
+    const s = await managedSources(io, "darwin");
+    expect(s).toEqual([{ source: p, keys: ["disableAutoUpdates", "egressProxyUrl"], readable: true }]);
+    expect(managedTakeover(s)).toBeNull();
+  });
+  it("darwin: plutil output that is not a JSON object is unreadable (fails the takeover check closed)", async () => {
+    const p = "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist";
+    const io = new FakeIo({ env: { USER: "aca34" }, files: { [p]: "bplist" } });
+    io.on((c) => c === "plutil", () => ({ code: 0, stdout: "[1,2]", stderr: "" }));
+    const s = await managedSources(io, "darwin");
+    expect(s).toEqual([{ source: p, keys: [], readable: false }]);
+    expect(managedTakeover(s)).toBe(`could not read ${p}`);
   });
   it("darwin: an unconvertible managed plist is reported unreadable, and that fails the takeover check closed", async () => {
     const p = "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist";
@@ -89,6 +107,24 @@ describe("managed sources", () => {
     io.on((c, a) => c === "reg" && a[1].startsWith("HKLM"), () => ({ code: 0, stdout: "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Claude\r\n    inferenceProvider    REG_SZ\r\n\r\n", stderr: "" }));
     const s = await managedSources(io, "win32");
     expect(s).toEqual([{ source: "HKLM\\SOFTWARE\\Policies\\Claude", keys: ["inferenceProvider"], readable: true }]);
+  });
+  it("desktopInstall and managedSources are memoized per Io; desktopRunning never is; resetDesktopProbeCache clears them", async () => {
+    const home = "C:\\Users\\t";
+    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` }, dirs: [`${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`] });
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "1.49585.0\r\n", stderr: "" }));
+    io.on((c) => c === "reg", () => ({ code: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key or value." }));
+    io.on((c) => c === "tasklist", () => ({ code: 0, stdout: "Claude.exe   1234 Console   1   300,000 K\r\n", stderr: "" }));
+    const first = await desktopInstall(io, "win32", home);
+    expect(await desktopInstall(io, "win32", home)).toEqual(first);
+    expect(io.calls.filter((c) => c.cmd === "powershell")).toHaveLength(1);     // one 20 s Get-AppxPackage per run, not one per artifact
+    await managedSources(io, "win32"); await managedSources(io, "win32");
+    expect(io.calls.filter((c) => c.cmd === "reg")).toHaveLength(2);            // HKLM + HKCU, once
+    expect(await desktopRunning(io, "win32")).toBe(true);
+    expect(await desktopRunning(io, "win32")).toBe(true);
+    expect(io.calls.filter((c) => c.cmd === "tasklist")).toHaveLength(2);       // never cached: apply re-checks after the plan screen
+    resetDesktopProbeCache(io);
+    await desktopInstall(io, "win32", home);
+    expect(io.calls.filter((c) => c.cmd === "powershell")).toHaveLength(2);
   });
   it("desktopRunning uses pgrep / tasklist and treats an unhandled probe as not running", async () => {
     const io = new FakeIo();
@@ -134,6 +170,19 @@ describe("config library", () => {
     expect(await writeSidecar(io, "darwin", "/h", { servers: ["mecp"] })).toEqual({ entryId: id, servers: ["mecp"] });
     expect(await readSidecar(io, "darwin", "/h")).toEqual({ entryId: id, servers: ["mecp"] });
     expect(io.modes.get("/h/.config/boot-slapper/desktop.json")).toBe(0o600);
+  });
+  it("upsertMeta preserves keys it does not model — top-level and on a foreign entry", async () => {
+    const foreign = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const id = "33333333-3333-4333-8333-333333333333";
+    const before = { $schemaVersion: 3, appliedId: foreign, lastOpenedAt: 1757500000000, entries: [{ id: foreign, name: "Default", icon: "🏛", pinned: true }] };
+    const io = new FakeIo({ files: { [`${L}/_meta.json`]: JSON.stringify(before, null, 2) + "\n" } });
+    await upsertMeta(io, "darwin", "/h", { id, name: ENTRY_NAME }, true);
+    const after = JSON.parse(io.files.get(`${L}/_meta.json`)!) as typeof before;
+    expect(after.$schemaVersion).toBe(3);
+    expect(after.lastOpenedAt).toBe(1757500000000);
+    expect(after.entries[0]).toEqual({ id: foreign, name: "Default", icon: "🏛", pinned: true });
+    expect(after.entries[1]).toEqual({ id, name: ENTRY_NAME });
+    expect(after.appliedId).toBe(id);
   });
   it("cfgGet reads the nested v2 shape or the flat v1 shape; decodeAntDid decodes base64 text", () => {
     expect(cfgGet({ inference: { provider: "gateway" } }, ["inference", "provider"], "inferenceProvider")).toBe("gateway");

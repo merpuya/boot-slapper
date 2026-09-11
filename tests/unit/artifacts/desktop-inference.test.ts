@@ -91,10 +91,10 @@ describe("desktop-inference (darwin)", () => {
     const old = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST.replace("1.49585.0", "1.5354.0") } });
     expect(await desktopInference.detect(old.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
     const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
-    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict><key>disableAutoUpdates</key><true/><key>inferenceProvider</key><string>vertex</string></dict></plist>", stderr: "" }));
+    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, inferenceProvider: "vertex" }), stderr: "" }));   // plutil -convert json
     expect(await desktopInference.detect(managed.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\).*Configure Third-Party Inference/) });
     const behaviorOnly = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
-    behaviorOnly.io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict><key>disableAutoUpdates</key><true/></dict></plist>", stderr: "" }));
+    behaviorOnly.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, egressProxyUrl: { host: "proxy", port: 8080 } }), stderr: "" }));   // a nested dict under an app-behavior key is still not a takeover
     expect((await desktopInference.detect(behaviorOnly.ctx)).kind).toBe("absent");
   });
 
