@@ -48,6 +48,7 @@ src/
     open-brain-auth.ts          # NEW — row 11
     hosted-connectors.ts        # NEW — row 12
     prereqs.ts                  # desktop check via engine/desktop.ts (MSIX-aware on win32, version shown)
+    project-memory.ts           # bashCmd: Git Bash resolved via `git --exec-path` on win32 (Task 7b)
   profiles/aca34.ts             # surfaces: ["code","desktop"]; five new artifacts + options
   cli.ts                        # USAGE lists the desktop artifacts in --only examples (text only)
 tests/
@@ -1964,6 +1965,102 @@ Expected: unit suite green (143 + the new files' cases); parity: `doctor-parity`
 ```bash
 git add src/profiles/aca34.ts src/cli.ts src/artifacts/desktop-skills.ts tests/unit/artifacts/contract.test.ts tests/unit/cli.test.ts tests/parity/skins.test.ts
 git commit -m "feat(profile): aca34 on code + desktop; contract allowlist for the Desktop probes; skins parity covers the desktop artifacts"
+```
+
+---
+
+### Task 7b: `project-memory` resolves Git Bash on win32 (gate-2 prerequisite; CLAUDE.md follow-up)
+
+**Why here:** on a stock Git-for-Windows install only `Git\cmd` is on PATH, so a bare `bash` spawn resolves to WSL's `bash.exe` (a different filesystem, no `sync-memory`) or to nothing. `git --exec-path` prints `<git root>/mingw64/libexec/git-core` (forward slashes); the bash `sync-memory` needs is `<git root>\bin\bash.exe`. Placed after Task 7 so the contract allowlist is edited once, in its final shape.
+
+**Files:**
+- Modify: `src/artifacts/project-memory.ts`, `tests/unit/artifacts/project-memory.test.ts`, `tests/unit/artifacts/contract.test.ts` (allowlist line only)
+
+**Interfaces:**
+- Produces: `export async function bashCmd(io: Io, os: Os): Promise<string>` — `"bash"` on darwin/linux without any exec; on win32 runs `git --exec-path` once, walks the printed directory upward with `path.win32.dirname` until `pj("win32", dir, "bin", "bash.exe")` exists (`io.exists`), and returns that path; returns `"bash"` when git fails (non-zero code) or no `bin\bash.exe` is found. Never spawns `.cmd`/`.bat`.
+- Consumes: nothing new. `apply` (`sync` step) and `verify` spawn `await bashCmd(io, env.os)` instead of the literal `"bash"`; the argv is unchanged.
+- Contract allowlist: `git` gains `--exec-path` — `expect(["rev-parse", "status", "ls-remote", "--exec-path"]).toContain(sub)` (a `--exec-path` call has no `-C`, so `sub === args[0]`).
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/unit/artifacts/project-memory.test.ts` — import `bashCmd` alongside the existing imports and add a `describe("bashCmd", …)` block:
+```ts
+describe("bashCmd", () => {
+  it("is the bare `bash` off Windows and makes no exec call", async () => {
+    const { io } = await makeCtx();
+    expect(await bashCmd(io, "darwin")).toBe("bash");
+    expect(await bashCmd(io, "linux")).toBe("bash");
+    expect(io.calls).toEqual([]);
+  });
+  it("win32: walks up from `git --exec-path` to <git root>\\bin\\bash.exe", async () => {
+    const { io } = await makeCtx({ platform: "win32", home: "C:\\Users\\t", files: { "C:\\Program Files\\Git\\bin\\bash.exe": "" } });
+    io.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    expect(await bashCmd(io, "win32")).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(io.calls).toEqual([expect.objectContaining({ cmd: "git", args: ["--exec-path"] })]);
+  });
+  it("win32: falls back to `bash` when git is missing or no bin\\bash.exe exists above exec-path", async () => {
+    const { io: noGit } = await makeCtx({ platform: "win32", home: "C:\\Users\\t" });
+    noGit.on((c) => c === "git", () => ({ code: 127, stdout: "", stderr: "spawn git ENOENT" }));
+    expect(await bashCmd(noGit, "win32")).toBe("bash");
+    const { io: noBash } = await makeCtx({ platform: "win32", home: "C:\\Users\\t" });
+    noBash.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    expect(await bashCmd(noBash, "win32")).toBe("bash");
+  });
+  it("win32 verify spawns the resolved bash for `sync-memory list`", async () => {
+    const home = "C:\\Users\\t"; const repo = `${home}\\projects\\claude-memory-sync`;
+    const { ctx, io } = await makeCtx({ platform: "win32", home, opts, dirs: [`${repo}\\.git`, `${repo}\\projects\\mecp`, `${home}\\.claude\\projects`], files: { "C:\\Program Files\\Git\\bin\\bash.exe": "", [`${repo}\\devices\\testbox.json`]: JSON.stringify({ device_label: "testbox", platform: "win32", mappings: {} }), [`${home}\\.claude\\scripts\\memory-auto-sync.mjs`]: "", [`${home}\\.claude\\scripts\\load-mecp-context.mjs`]: "" } });
+    io.on((c, a) => c === "git" && a[0] === "--exec-path", () => ({ code: 0, stdout: "C:/Program Files/Git/mingw64/libexec/git-core\n", stderr: "" }));
+    io.on((c) => c.endsWith("bash.exe"), () => ({ code: 0, stdout: "", stderr: "" }));
+    const checks = await projectMemory.verify(ctx);
+    expect(checks.find((c) => c.id === "resolves")?.status).toBe("ok");
+    const spawn = io.calls.find((c) => c.cmd !== "git");
+    expect(spawn?.cmd).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(spawn?.args).toEqual(["/c/Users/t/projects/claude-memory-sync/bin/sync-memory", "--device", "testbox", "list"]);
+  });
+});
+```
+(`FakeIo.addParents` uses posix `dirname`, so seed the win32 directories explicitly in `dirs` as above; `env.label` defaults to the fake hostname `testbox` — check `resolveEnv` if the assertion on `"testbox"` fails and use whatever `ctx.env.label` is.)
+
+`tests/unit/artifacts/contract.test.ts`: in `assertAllowedCall`, change the git list to `["rev-parse", "status", "ls-remote", "--exec-path"]`.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npx vitest run tests/unit/artifacts/project-memory.test.ts`
+Expected: FAIL — `bashCmd` is not exported.
+
+- [ ] **Step 3: Implement `bashCmd` and use it**
+
+`src/artifacts/project-memory.ts`:
+```ts
+/** Git Bash on win32: a stock Git-for-Windows install has only Git\cmd on PATH, where `bash` resolves to WSL or nothing.
+ *  `git --exec-path` → <root>/mingw64/libexec/git-core; sync-memory needs <root>\bin\bash.exe. Falls back to `bash`. */
+export async function bashCmd(io: Io, os: Os): Promise<string> {
+  if (os !== "win32") return "bash";
+  const r = await io.exec("git", ["--exec-path"], { timeout: 10_000 });
+  if (r.code !== 0) return "bash";
+  let dir = r.stdout.trim();
+  while (dir) {
+    const cand = pj(os, dir, "bin", "bash.exe");
+    if (await io.exists(cand)) return cand;
+    const up = path.win32.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return "bash";
+}
+```
+In `apply`'s `sync` case: `const bash = await bashCmd(io, env.os);` and spawn `io.exec(bash, [bin, …])` for both push and pull. In `verify`: `const r = await io.exec(await bashCmd(io, env.os), [syncBin(f, env.os), "--device", env.label, "list"], { timeout: 30_000 });`.
+
+- [ ] **Step 4: Run the suite**
+
+Run: `npm run typecheck && npx vitest run tests/unit/artifacts/project-memory.test.ts tests/unit/artifacts/contract.test.ts`
+Expected: PASS — existing darwin cases still see `cmd === "bash"`; the four new cases pass; the contract test still passes for every artifact (darwin fixture makes no `--exec-path` call).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/artifacts/project-memory.ts tests/unit/artifacts/project-memory.test.ts tests/unit/artifacts/contract.test.ts
+git commit -m "fix(project-memory): resolve Git Bash via git --exec-path on win32 — stock Git-for-Windows keeps only Git\\cmd on PATH"
 ```
 
 ---
