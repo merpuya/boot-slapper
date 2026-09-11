@@ -48,24 +48,47 @@ describe("managed sources", () => {
     io.on((c, a) => c === "plutil" && a.includes("-convert"), ({ args }) => ({ code: 0, stdout: PLIST(args.at(-1)!.includes("/aca34/") ? { disableAutoUpdates: "true" } : { disableAutoUpdates: "true", autoUpdaterEnforcementHours: "24" }), stderr: "" }));
     const s = await managedSources(io, "darwin");
     expect(s).toEqual([
-      { source: "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates"] },
-      { source: "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates", "autoUpdaterEnforcementHours"] },
+      { source: "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates"], readable: true },
+      { source: "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist", keys: ["disableAutoUpdates", "autoUpdaterEnforcementHours"], readable: true },
     ]);
     expect(io.calls.every((c) => c.cmd === "plutil" && c.args[0] === "-convert" && c.args[1] === "xml1" && c.args[2] === "-o" && c.args[3] === "-")).toBe(true);
     expect(managedTakeover(s)).toBeNull();
-    expect(managedTakeover([{ source: "x.plist", keys: ["disableAutoUpdates", "inferenceProvider"] }])).toBe("x.plist sets inferenceProvider");
+    expect(managedTakeover([{ source: "x.plist", keys: ["disableAutoUpdates", "inferenceProvider"], readable: true }])).toBe("x.plist sets inferenceProvider");
+  });
+  it("darwin: an unconvertible managed plist is reported unreadable, and that fails the takeover check closed", async () => {
+    const p = "/Library/Managed Preferences/aca34/com.anthropic.claudefordesktop.plist";
+    const io = new FakeIo({ env: { USER: "aca34" }, files: { [p]: "bplist" } });
+    io.on((c, a) => c === "plutil" && a.includes("-convert"), () => ({ code: 1, stdout: "", stderr: "plutil: could not convert" }));
+    const s = await managedSources(io, "darwin");
+    expect(s).toEqual([{ source: p, keys: [], readable: false }]);
+    expect(managedTakeover(s)).toBe(`could not read ${p}`);
   });
   it("win32: HKLM values own the device; HKCU is consulted only when HKLM is empty", async () => {
     const io = new FakeIo({ platform: "win32", home: "C:\\Users\\t" });
     io.on((c, a) => c === "reg" && a[1].startsWith("HKLM"), () => ({ code: 0, stdout: "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Claude\r\n    disableAutoUpdates    REG_SZ    true\r\n\r\n", stderr: "" }));
     io.on((c, a) => c === "reg" && a[1].startsWith("HKCU"), () => ({ code: 0, stdout: "\r\nHKEY_CURRENT_USER\\SOFTWARE\\Policies\\Claude\r\n    inferenceProvider    REG_SZ    gateway\r\n\r\n", stderr: "" }));
-    expect(await managedSources(io, "win32")).toEqual([{ source: "HKLM\\SOFTWARE\\Policies\\Claude", keys: ["disableAutoUpdates"] }]);
+    expect(await managedSources(io, "win32")).toEqual([{ source: "HKLM\\SOFTWARE\\Policies\\Claude", keys: ["disableAutoUpdates"], readable: true }]);
+    // HKLM genuinely absent ("unable to find the specified registry key") falls through to HKCU, unchanged.
     const empty = new FakeIo({ platform: "win32", home: "C:\\Users\\t" });
     empty.on((c, a) => c === "reg" && a[1].startsWith("HKLM"), () => ({ code: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key or value." }));
     empty.on((c, a) => c === "reg" && a[1].startsWith("HKCU"), () => ({ code: 0, stdout: "\r\nHKEY_CURRENT_USER\\SOFTWARE\\Policies\\Claude\r\n    inferenceProvider    REG_SZ    gateway\r\n\r\n", stderr: "" }));
     const s = await managedSources(empty, "win32");
-    expect(s).toEqual([{ source: "HKCU\\SOFTWARE\\Policies\\Claude", keys: ["inferenceProvider"] }]);
+    expect(s).toEqual([{ source: "HKCU\\SOFTWARE\\Policies\\Claude", keys: ["inferenceProvider"], readable: true }]);
     expect(managedTakeover(s)).toBe("HKCU\\SOFTWARE\\Policies\\Claude sets inferenceProvider");
+  });
+  it("win32: an HKLM reg-query failure other than \"key not found\" is reported unreadable and does not fall through to HKCU", async () => {
+    const io = new FakeIo({ platform: "win32", home: "C:\\Users\\t" });
+    io.on((c, a) => c === "reg" && a[1].startsWith("HKLM"), () => ({ code: 5, stdout: "", stderr: "ERROR: Access is denied." }));
+    io.on((c, a) => c === "reg" && a[1].startsWith("HKCU"), () => ({ code: 0, stdout: "\r\nHKEY_CURRENT_USER\\SOFTWARE\\Policies\\Claude\r\n    inferenceProvider    REG_SZ    gateway\r\n\r\n", stderr: "" }));
+    const s = await managedSources(io, "win32");
+    expect(s).toEqual([{ source: "HKLM\\SOFTWARE\\Policies\\Claude", keys: [], readable: false }]);
+    expect(managedTakeover(s)).toBe("could not read HKLM\\SOFTWARE\\Policies\\Claude");
+  });
+  it("win32: reg query parses a REG_SZ value with no trailing data (an empty string)", async () => {
+    const io = new FakeIo({ platform: "win32", home: "C:\\Users\\t" });
+    io.on((c, a) => c === "reg" && a[1].startsWith("HKLM"), () => ({ code: 0, stdout: "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Claude\r\n    inferenceProvider    REG_SZ\r\n\r\n", stderr: "" }));
+    const s = await managedSources(io, "win32");
+    expect(s).toEqual([{ source: "HKLM\\SOFTWARE\\Policies\\Claude", keys: ["inferenceProvider"], readable: true }]);
   });
   it("desktopRunning uses pgrep / tasklist and treats an unhandled probe as not running", async () => {
     const io = new FakeIo();

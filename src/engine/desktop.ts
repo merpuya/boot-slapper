@@ -54,12 +54,18 @@ export function versionAtLeast(v: string | null, min: string): boolean {
   return true;
 }
 
-export interface ManagedSource { source: string; keys: string[] }
+export interface ManagedSource { source: string; keys: string[]; readable: boolean }
 
 const plistKeys = (xml: string) => [...xml.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
-const regKeys = (out: string) => out.split(/\r?\n/).map((l) => /^\s{2,}(\S+)\s+REG_[A-Z_]+\s/.exec(l)?.[1]).filter((k): k is string => !!k && k !== "(Default)");
+const regKeys = (out: string) => out.split(/\r?\n/).map((l) => /^\s{2,}(\S+)\s+REG_[A-Z_]+(?:\s|$)/.exec(l)?.[1]).filter((k): k is string => !!k && k !== "(Default)");
+const REG_ABSENT = /unable to find the specified registry key/i;
 
-/** Every managed source the app would read, with the keys it sets. darwin: per-user plist first (it wins). win32: HKLM only when it holds any value, else HKCU. */
+/**
+ * Every managed source the app would read, with the keys it sets. darwin: per-user plist first (it wins).
+ * win32: HKLM only when it holds any value, else HKCU. A source that exists but could not be read (plutil
+ * failure, a reg-query failure other than "key not found", or invalid JSON) is still reported, with
+ * `readable: false` and no keys — callers must not treat that as "this source sets nothing" (see managedTakeover).
+ */
 export async function managedSources(io: Io, os: Os): Promise<ManagedSource[]> {
   const out: ManagedSource[] = [];
   if (os === "darwin") {
@@ -68,25 +74,36 @@ export async function managedSources(io: Io, os: Os): Promise<ManagedSource[]> {
     for (const p of paths) {
       if (!(await io.exists(p))) continue;
       const r = await io.exec("plutil", ["-convert", "xml1", "-o", "-", p], { timeout: 10_000 });   // managed plists are binary; plutil is read-only with -o -
-      out.push({ source: p, keys: r.code === 0 ? plistKeys(r.stdout) : [] });
+      out.push(r.code === 0 ? { source: p, keys: plistKeys(r.stdout), readable: true } : { source: p, keys: [], readable: false });
     }
   } else if (os === "win32") {
     for (const hive of ["HKLM", "HKCU"]) {
       const key = `${hive}\\SOFTWARE\\Policies\\Claude`;
       const r = await io.exec("reg", ["query", key], { timeout: 10_000 });
-      const keys = r.code === 0 ? regKeys(r.stdout) : [];
-      if (keys.length) { out.push({ source: key, keys }); break; }     // v1.19367.0+: any HKLM value makes the app ignore HKCU entirely
+      if (r.code === 0) {
+        const keys = regKeys(r.stdout);
+        if (keys.length) { out.push({ source: key, keys, readable: true }); break; }     // v1.19367.0+: any HKLM value makes the app ignore HKCU entirely
+        continue;
+      }
+      if (REG_ABSENT.test(r.stderr)) continue;     // hive genuinely absent — try the next one
+      out.push({ source: key, keys: [], readable: false });     // exists but unreadable — fail closed, do not fall through to HKCU
+      break;
     }
   } else {
     const p = "/etc/claude-desktop/managed-settings.json";
     const s = await io.readFile(p);
-    if (s !== null) { try { out.push({ source: p, keys: Object.keys(JSON.parse(s) as Record<string, unknown>) }); } catch { out.push({ source: p, keys: [] }); } }
+    if (s !== null) {
+      try { out.push({ source: p, keys: Object.keys(JSON.parse(s) as Record<string, unknown>), readable: true }); }
+      catch { out.push({ source: p, keys: [], readable: false }); }
+    }
   }
   return out;
 }
 
+/** `null` only when every source was readable and set nothing but app-behaviour keys. An unreadable source fails closed: we cannot rule out a takeover, so we report one. */
 export function managedTakeover(sources: ManagedSource[]): string | null {
   for (const s of sources) {
+    if (!s.readable) return `could not read ${s.source}`;
     const owning = s.keys.filter((k) => !APP_BEHAVIOR_KEYS.has(k));
     if (owning.length) return `${s.source} sets ${owning.join(", ")}`;
   }
