@@ -33,7 +33,13 @@ Claude Desktop (third-party mode): `bs onboard` writes one configuration named `
 library (`~/Library/Application Support/Claude-3p/configLibrary/`, `%LOCALAPPDATA%\Claude-3p\configLibrary\`) — gateway provider,
 a credential helper that prints the key from the secret store, MeCP (headers helper) and Open Brain (OAuth) as managed connectors —
 and copies the listed dotclaude skills into Cowork's skills plugin. Quit Desktop before applying; relaunch and choose the third-party
-option afterwards. A device whose MDM profile sets more than the update/proxy keys is reported `blocked`: IT owns that configuration.
+option afterwards. On a fresh box it takes two passes: the first `bs onboard` writes the inference entry (Cowork's plugin directory and
+`ant-did` do not exist yet), and a second `bs onboard` — after relaunching Desktop in third-party mode, opening Cowork once and quitting
+again — completes the MCP servers and the skills. A device whose MDM profile sets more than the update/proxy keys is reported `blocked`:
+IT owns that configuration.
+
+`desktop-inference`'s verify — so `bs doctor`, and therefore `npm run test:parity`, which spawns a live `bs doctor` — makes a real
+`GET <baseUrl>/v1/models` with the stored gateway key as an in-process header, so both need network.
 
 Secrets live in the login Keychain (macOS) or Windows Credential Manager; `mecp-api-key` lives in
 `~/.config/mecp/api_key` because the SessionStart hook reads that file; `mct-sync-token` is copied into
@@ -45,7 +51,7 @@ appear on a command line.
 ## Develop
 
     npm install && npm test          # unit tests against the recording io fake
-    npm run test:parity              # gate 1: bs doctor vs ~/.claude/bootstrap.sh --doctor (skips without dotclaude)
+    npm run test:parity              # gate 1: bs doctor vs ~/.claude/bootstrap.sh --doctor (skips without dotclaude; needs network — see below)
     npm run build && node dist/cli.js plan
 
 Phase map and task-level plan: Phase 1 `docs/superpowers/plans/2026-09-09-boot-slapper-phase1-engine.md`, Phase 2 `docs/superpowers/plans/2026-09-10-boot-slapper-phase2-artifacts-tui.md`, Phase 3 `docs/superpowers/plans/2026-09-10-boot-slapper-phase3-desktop-cutover.md`.

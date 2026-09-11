@@ -197,7 +197,9 @@ ones stay doctor warnings. Row 7 — a plugin the user disabled is reported, nev
 
 **Amendments (2026-09-10, Phase 3 — see docs/spikes/2026-09-10-s1-*.md, s2-*.md):** row 8 — Desktop never reads user defaults; the
 per-user target is the `Claude-3p/configLibrary/` entry boot-slapper owns (nested v2 document), the gateway key is delivered by a
-credential helper (`inferenceCredentialHelper`), `disableAutoUpdates` is not written locally (the update group is managed-only when MDM
+credential helper written as `inference.credential = { kind: "helper-script", command: <~/.config/boot-slapper/desktop-inference-credential.sh|.ps1>, ttlSec: 3600, authScheme: "bearer" }`
+(the flat `inferenceCredentialHelper` key is only a `cfgGet` read fallback for v1-shaped documents, never written),
+`disableAutoUpdates` is not written locally (the update group is managed-only when MDM
 sets it), and a managed source that sets any non-app-behavior key makes the artifact `blocked` with the in-app-window instructions.
 Row 9 — remote servers live in `managedMcpServers` of the same entry (`claude_desktop_config.json` is stdio-only); MeCP uses a
 headers helper, Open Brain `oauth: true`; no `mcp-remote` bridge. Row 10 — skills are copied into Cowork's

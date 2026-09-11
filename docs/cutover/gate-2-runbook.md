@@ -9,9 +9,11 @@ verified from each. Until then nothing below is applied.
    `irm https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.ps1 | iex`. Read the plan screen before confirming.
 2. Secrets when prompted: `cornell-ai-gateway`, `mecp-device-token` (minted on an admin box), `mecp-api-key`, `mct-sync-token`
    (`mct devices add <slug>` on an admin box). Never paste them anywhere else.
-3. Claude Desktop: install the `.dmg` / `.msix` first (the `.exe` has no Cowork). After onboard: quit and relaunch Desktop, choose the
-   third-party option, open Cowork once (creates `ant-did` and the skills plugin), then `bs onboard --only desktop-skills,open-brain-auth`.
-   Help → Troubleshooting → Copy Managed Configuration Report must show the keys read from the *user store* and the credential validated.
+3. Claude Desktop: install the `.dmg` / `.msix` first (the `.exe` has no Cowork) but **do not launch it** until `bs onboard` has run —
+   the apply steps refuse to touch the config library or Cowork's plugin directory while Desktop is running. After onboard: relaunch
+   Desktop, choose the third-party option, open Cowork once (creates `ant-did` and the skills plugin), **quit Claude Desktop**, then run
+   `bs onboard` again. `bs onboard` is idempotent — run it again after the first Desktop relaunch; the MCP servers and skills land on the
+   second pass. Help → Troubleshooting → Copy Managed Configuration Report must show the keys read from the *user store* and the credential validated.
    On the Cornell Windows box check `HKLM\SOFTWARE\Policies\Claude` holds only app-behavior keys (`disableAutoUpdates` …) — anything
    else means IT owns the configuration and `desktop-inference` reports `blocked` by design.
 4. Evidence: `bs doctor --json > docs/evidence/<label>-<date>.json` in this repo (redact nothing — doctor prints no values — but do read it).
