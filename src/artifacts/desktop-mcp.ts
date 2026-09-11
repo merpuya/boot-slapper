@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import {
-  bsDir, desktopInstall, desktopRunning, ENTRY_NAME, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
+  bsDir, desktopInstall, desktopRunning, ENTRY_NAME, managedSources, managedTakeover, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
   runningError, versionAtLeast, writeLibraryEntry, writeSidecar, type OurEntry,
 } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
@@ -40,7 +40,8 @@ export function wantedServers(bundle: BundleDoc, o: Opts, os: Os, home: string, 
 }
 
 interface Facts {
-  installed: boolean; version: string | null; running: boolean; bundlePath: string; bundle: BundleDoc | null | "invalid";
+  installed: boolean; version: string | null; versionOld: boolean; takeover: string | null; managedKeys: number; running: boolean;
+  bundlePath: string; bundle: BundleDoc | null | "invalid";
   ours: OurEntry | null | "invalid"; wanted: ReturnType<typeof wantedServers>; staleHelpers: string[]; current: ManagedServer[]; owned: string[]; merged: ManagedServer[]; serversCurrent: boolean;
 }
 
@@ -50,6 +51,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const rawBundle = await readJson(io, bundlePath);
   const bundle: BundleDoc | null | "invalid" = rawBundle === null || rawBundle === "invalid" ? rawBundle : (rawBundle as unknown as BundleDoc);
   const install = await desktopInstall(io, env.os, env.home);
+  const sources = install.installed ? await managedSources(io, env.os) : [];
   const ours = install.installed ? await ourEntry(io, env.os, env.home) : null;
   const account = defaultAccount(io);
   const wanted = wantedServers(bundle && bundle !== "invalid" ? bundle : {}, o, env.os, env.home, account);
@@ -60,7 +62,10 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const foreign = current.filter((s) => !owned.includes(s.name) && !wanted.servers.some((w) => w.name === s.name));
   const merged = [...foreign, ...wanted.servers];
   return {
-    installed: install.installed, version: install.version, running: install.installed ? await desktopRunning(io, env.os) : false,
+    installed: install.installed, version: install.version,
+    versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),
+    takeover: managedTakeover(sources), managedKeys: sources.reduce((n, s) => n + s.keys.length, 0),
+    running: install.installed ? await desktopRunning(io, env.os) : false,
     bundlePath, bundle, ours, wanted, staleHelpers, current, owned, merged, serversCurrent: deepEqual(current, merged),
   };
 }
@@ -71,6 +76,8 @@ export const desktopMcp: Artifact = {
   async detect(ctx): Promise<State> {
     const f = await facts(ctx);
     if (!f.installed) return { kind: "blocked", reason: "Claude Desktop not installed — see desktop-inference" };
+    if (f.versionOld) return { kind: "blocked", reason: `Claude Desktop ${f.version} < ${MIN_DESKTOP_VERSION} — update it, then re-run` };
+    if (f.takeover) return { kind: "blocked", reason: `managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored; managed MCP servers may differ from what boot-slapper writes. Ask IT for the managed policy, or check Developer → Configure Third-Party Inference… (read-only there)` };
     if (f.bundle === null) return { kind: "blocked", reason: `${f.bundlePath} missing — it is a tracked dotclaude file; check the claude-config artifact` };
     if (f.bundle === "invalid") return { kind: "blocked", reason: `${f.bundlePath} is not valid JSON — fix it in dotclaude` };
     if (f.ours === "invalid") return { kind: "blocked", reason: "boot-slapper config-library entry is not valid JSON — see desktop-inference" };
@@ -120,6 +127,8 @@ export const desktopMcp: Artifact = {
     const f = await facts(ctx); const o = ctx.opts as unknown as Opts; const out: Check[] = [];
     if (!f.installed) return [{ id: "installed", status: "error", message: "Claude Desktop not installed" }];
     out.push(f.version && !versionAtLeast(f.version, MIN_DESKTOP_VERSION) ? { id: "version", status: "error", message: `Claude Desktop ${f.version} < ${MIN_DESKTOP_VERSION} — managed MCP servers with helpers need a newer build` } : { id: "version", status: "ok", message: `Claude Desktop ${f.version ?? "(version unknown)"} supports managed MCP servers` });
+    out.push(f.takeover ? { id: "managed", status: "error", message: `managed configuration owns Claude Desktop: ${f.takeover} — local settings are ignored, managed MCP servers may differ from what boot-slapper writes` }
+      : { id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
     if (f.bundle === null || f.bundle === "invalid") { out.push({ id: "bundle", status: "error", message: `${f.bundlePath} missing or invalid` }); return out; }
     for (const w of f.wanted.servers) {
       const cur = f.current.find((s) => s.name === w.name);

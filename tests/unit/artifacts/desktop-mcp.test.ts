@@ -60,6 +60,16 @@ describe("desktop-mcp", () => {
     expect(doc.mcp.managedServers).toEqual([{ name: "corp", transport: "http", url: "https://corp" }, ...expectedServers]);
   });
 
+  it("blocked: Claude Desktop below the version floor, or a managed source owns the configuration; the default satisfied box is neither", async () => {
+    const oldVersion = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST.replace("1.49585.0", "1.5354.0"), "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
+    expect(await desktopMcp.detect(oldVersion.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
+    const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
+    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict><key>disableAutoUpdates</key><true/><key>inferenceProvider</key><string>vertex</string></dict></plist>", stderr: "" }));
+    expect(await desktopMcp.detect(managed.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\)/) });
+    const { ctx } = await box();
+    expect((await desktopMcp.detect(ctx)).kind).not.toBe("blocked");
+  });
+
   it("blocked without a boot-slapper entry (desktop-inference first), without the bundle, or while Desktop runs at apply time", async () => {
     const noEntry = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
     expect(await desktopMcp.detect(noEntry.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/desktop-inference/) });
@@ -94,7 +104,7 @@ describe("desktop-mcp", () => {
     } });
     io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "1.49585.0\r\n", stderr: "" }));
     io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
-    io.on((c) => c === "reg", () => ({ code: 1, stdout: "", stderr: "" }));
+    io.on((c) => c === "reg", () => ({ code: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key or value." }));
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, await desktopMcp.detect(ctx)));
     const doc = JSON.parse(io.files.get(`${lib}\\${ID}.json`)!);
     expect(doc.mcp.managedServers[1].headersHelper).toBe(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`);
