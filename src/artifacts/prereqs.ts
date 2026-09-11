@@ -1,5 +1,5 @@
 import type { Artifact, Bundle, Check, Ctx, State } from "../engine/artifact.ts";
-import { desktopAppPath } from "../engine/env.ts";
+import { desktopInstall, MIN_DESKTOP_VERSION, versionAtLeast } from "../engine/desktop.ts";
 import type { Io } from "../engine/io.ts";
 
 export async function nodeVersion(io: Io): Promise<{ major: number; minor: number; raw: string } | null> {
@@ -25,8 +25,10 @@ async function checks(ctx: Ctx): Promise<Check[]> {
   else if (nv.major > 22 || (nv.major === 22 && nv.minor >= 5)) out.push({ id: "node", status: "ok", message: `prereq: node ${nv.raw}` });
   else out.push({ id: "node", status: "error", message: `node ${nv.raw} < 22.5 — upgrade node` });
   out.push((await io.which("claude")) ? { id: "claude", status: "ok", message: "prereq: claude" } : { id: "claude", status: "warn", message: `claude not found — ${CLAUDE_HINT}` });
-  const app = desktopAppPath(env.os, env.home);
-  out.push((await io.exists(app)) ? { id: "desktop", status: "ok", message: `Claude Desktop: ${app}` } : { id: "desktop", status: "warn", message: `Claude Desktop not found at ${app} — install from https://claude.com/download` });
+  const d = await desktopInstall(io, env.os, env.home);
+  if (!d.installed) out.push({ id: "desktop", status: "warn", message: `Claude Desktop not found at ${d.path} — install from https://claude.com/download (Windows: the .msix package; the .exe installer has no Cowork)` });
+  else if (d.version && !versionAtLeast(d.version, MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${MIN_DESKTOP_VERSION} — update it before the desktop artifacts run` });
+  else out.push({ id: "desktop", status: "ok", message: d.version ? `Claude Desktop ${d.version} at ${d.path}` : `Claude Desktop at ${d.path} (version unknown)` });
   out.push({ id: "platform", status: "ok", message: `platform: ${env.os}` });
   return out;
 }
@@ -44,7 +46,7 @@ export const prereqs: Artifact = {
     return { files: [], instructions: [
       "git, curl, jq, python3 (or python) and node ≥ 22.5 on PATH — platform package manager (dotfiles Brewfile / winget-packages.json)",
       `claude CLI — ${CLAUDE_HINT}`,
-      "Claude Desktop — https://claude.com/download (needed by the Phase 3 desktop artifacts)",
+      "Claude Desktop ≥ 1.19367.0 — https://claude.com/download (macOS .dmg; Windows .msix)",
     ] };
   },
 };

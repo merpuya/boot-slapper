@@ -28,6 +28,19 @@ describe("prereqs", () => {
     expect(checks.find((c) => c.id === "claude")).toMatchObject({ status: "warn", message: expect.stringMatching(/claude\.ai\/install\.sh/) });
     expect(checks.find((c) => c.id === "desktop")).toMatchObject({ status: "warn" });
   });
+  it("desktop: version from Info.plist; too-old and missing are warns (device-bound, never blocking)", async () => {
+    const plist = "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>";
+    const ok = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": plist } });
+    ok.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+    expect((await prereqs.verify(ok.ctx)).find((c) => c.id === "desktop")).toEqual({ id: "desktop", status: "ok", message: "Claude Desktop 1.49585.0 at /Applications/Claude.app" });
+    const old = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": plist.replace("1.49585.0", "1.5354.0") } });
+    old.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+    expect((await prereqs.verify(old.ctx)).find((c) => c.id === "desktop")).toMatchObject({ status: "warn", message: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
+    const none = await makeCtx({ path: allTools });
+    none.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+    expect((await prereqs.verify(none.ctx)).find((c) => c.id === "desktop")).toMatchObject({ status: "warn", message: expect.stringMatching(/not found at \/Applications\/Claude\.app/) });
+    expect(await prereqs.detect(none.ctx)).toEqual({ kind: "present" });   // desktop is warn-only for prereqs
+  });
   it("accepts `python` when `python3` is absent (Git Bash on Windows)", async () => {
     const { ctx, io } = await makeCtx({ platform: "win32", home: "C:\\Users\\t", path: { ...allTools, python3: undefined as unknown as string, python: "C:\\py\\python.exe" } });
     io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
