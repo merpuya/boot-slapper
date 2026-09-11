@@ -23,16 +23,15 @@ function benignHandlers(io: { on: (m: (c: string, a: string[]) => boolean, h: (c
 
 function assertAllowedCall(call: { cmd: string; args: string[] }) {
   const { cmd, args } = call;
-  if (cmd === "git") {
-    const sub = args[0] === "-C" ? args[2] : args[0];
-    expect(["rev-parse", "status", "ls-remote"]).toContain(sub);
-    return;
-  }
-  if (cmd === "security") { expect(args[0]).toBe("find-generic-password"); return; }
-  if (cmd === "powershell") return;      // read-only PasswordVault/$PROFILE probes
+  if (cmd === "git") { const sub = args[0] === "-C" ? args[2] : args[0]; expect(["rev-parse", "status", "ls-remote"]).toContain(sub); return; }
+  if (cmd === "security") { expect(args[0]).toBe("find-generic-password"); return; }   // any service — the value is read in-process and never written
+  if (cmd === "powershell") return;      // read-only PasswordVault / $PROFILE / Get-AppxPackage probes
   if (cmd === "ssh") return;             // BatchMode auth probe
   if (cmd === "node") { expect(args[0] === "--version" || (/dist[\\/]cli\.js$/.test(args[0]) && args[1] === "doctor")).toBe(true); return; }
   if (cmd === "bash") { expect(args[0]).toMatch(/sync-memory$/); expect(args.at(-1)).toBe("list"); return; }
+  if (cmd === "plutil") { expect(args.slice(0, 4)).toEqual(["-convert", "xml1", "-o", "-"]); return; }   // managed plist → xml on stdout
+  if (cmd === "reg") { expect(args[0]).toBe("query"); return; }
+  if (cmd === "pgrep" || cmd === "tasklist") return;   // is Desktop running
   throw new Error(`detect/verify made an unexpected exec call: ${cmd} ${JSON.stringify(args)}`);
 }
 
@@ -52,8 +51,34 @@ describe("artifact contract: detect/verify never write and only run allowlisted 
       await artifact.verify(c);
       expect(io.writes).toEqual([]);
       for (const call of io.calls) assertAllowedCall(call);
+      for (const f of io.fetches) expect(f.init.method ?? "GET", `${artifact.id} fetch ${f.url}`).toBe("GET");
     });
   }
+
+  describe("… with Claude Desktop installed", () => {
+    for (const artifact of aca34.artifacts) {
+      it(`${artifact.id}`, async () => {
+        const { ctx, io } = await makeCtx({
+          path: allTools,
+          dirs: ["/h/.claude", "/Applications/Claude.app"],
+          files: {
+            "/h/.config/mecp/api_key": "k\n",
+            "/Applications/Claude.app/Contents/Info.plist": "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>",
+          },
+          env: { USER: "aca34" },
+          opts: aca34.options[artifact.id] ?? {},
+        });
+        benignHandlers(io);
+        io.on((c) => c === "plutil", () => ({ code: 0, stdout: "<plist><dict/></plist>", stderr: "" }));
+        const c = withOpts(ctx, aca34.options[artifact.id]);
+        await artifact.detect(c);
+        await artifact.verify(c);
+        expect(io.writes).toEqual([]);
+        for (const call of io.calls) assertAllowedCall(call);
+        for (const f of io.fetches) expect(f.init.method ?? "GET", `${artifact.id} fetch ${f.url}`).toBe("GET");
+      });
+    }
+  });
 
   it("apply-twice idempotency (cheap, generic subset): prereqs and secrets plan no steps once already present", async () => {
     const { ctx, io } = await makeCtx({

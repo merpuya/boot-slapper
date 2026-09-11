@@ -9,7 +9,7 @@ describe("bs cli", () => {
     const out = sink();
     const code = await main(["env"], { io: new FakeIo({ hostname: "BOX", env: { ANTHROPIC_BASE_URL: "https://gw" } }), stdout: out, stderr: sink() });
     expect(code).toBe(0);
-    expect(JSON.parse(out.lines.join("\n"))).toMatchObject({ label: "BOX", detectedProvider: "gateway", os: "darwin" });
+    expect(JSON.parse(out.lines.join("\n"))).toMatchObject({ label: "BOX", detectedProvider: "gateway", os: "darwin", desktopVersion: null });
   });
   it("doctor --json emits checks per artifact and exits 1 on any error", async () => {
     const out = sink();
@@ -66,9 +66,10 @@ describe("bs cli", () => {
     expect(io.writes).toEqual(["/tmp/b/claude-config/CLAUDE.md", "/tmp/b/plugins.json", "/tmp/b/instructions.md", "/tmp/b/manifest.json"]);
     const m = JSON.parse(io.files.get("/tmp/b/manifest.json")!);
     expect(m.schema).toBe(1);
-    expect(m.artifacts.map((a: { id: string }) => a.id)).toEqual(["prereqs", "claude-config", "secrets", "project-memory", "plugins", "mct"]);   // DAG order; gateway-launch has no capture
+    expect(m.artifacts.map((a: { id: string }) => a.id)).toEqual(["prereqs", "hosted-connectors", "claude-config", "secrets", "project-memory", "plugins", "mct", "desktop-inference", "desktop-mcp", "desktop-skills", "open-brain-auth"]);   // DAG order; gateway-launch has no capture
     expect(io.files.get("/tmp/b/instructions.md")).toMatch(/## secrets \(device-bound\)/);
-    expect(out.lines.at(-1)).toBe("==> bundle written: /tmp/b (2 file(s), 6 artifact(s))");
+    expect(io.files.get("/tmp/b/instructions.md")).toMatch(/## hosted-connectors \(non-transferable\)/);
+    expect(out.lines.at(-1)).toBe("==> bundle written: /tmp/b (2 file(s), 11 artifact(s))");
     const err = sink();
     expect(await main(["capture", "--out", "/tmp/b"], { io, stdout: sink(), stderr: err })).toBe(1);
     expect(err.lines[0]).toMatch(/already holds a bundle/);

@@ -26,7 +26,8 @@ const USAGE = `usage: bs — boot-slapper
   bs capture --out <dir> [--profile aca34]
   bs secrets set|check <${SERVICES.join("|")}>
   --auto      no prompts: interactive steps are skipped with a warning (implies --headless)
-  --headless  line output instead of the Ink screens (also the default when stdin is not a terminal or CI is set)`;
+  --headless  line output instead of the Ink screens (also the default when stdin is not a terminal or CI is set)
+  --only desktop-inference,desktop-mcp,desktop-skills   # just the Claude Desktop (3P) surface`;
 
 interface Deps { io?: Io; stdout?: Sink; stderr?: Sink; interactive?: boolean; tui?: boolean; streams?: TuiStreams; debug?: boolean }
 

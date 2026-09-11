@@ -10,6 +10,9 @@ export const D = { copy: "skill to copy:", foreign: "skill exists in Cowork but 
 export interface ManifestSkill { skillId: string; name: string; description: string; creatorType: string; syncManaged?: boolean; updatedAt: string | null; enabled: boolean }
 export interface Manifest { lastUpdated: number; skills: ManifestSkill[] }
 
+/** Same bytes as a source tree's contents: `rel\0content\0` concatenated in listing order, then sha256. A missing read (readFile returning null) stringifies the same way `${null}` would in the old inline accumulator — as the four-letter string "null" — so callers should pass `content: (await io.readFile(...)) ?? "null"`. */
+export const sourceHash = (entries: Array<{ rel: string; content: string }>): string => sha256(entries.map((e) => `${e.rel}\0${e.content}\0`).join(""));
+
 /** Cowork's user-skills plugin: <data>/local-agent-mode-sessions/skills-plugin/<org>/<account>/{manifest.json, skills/<name>/SKILL.md} (S1/S2 follow-up, Deviations §4). */
 export const skillsPluginDir = (dataDir: string, os: Os, org: string, account: string) => pj(os, dataDir, "local-agent-mode-sessions", "skills-plugin", org, account);
 
@@ -44,10 +47,10 @@ async function facts(ctx: Ctx): Promise<Facts> {
     const src = pj(env.os, env.claudeDir, "skills", name);
     const files = await walkFiles(io, env.os, src);
     if (!files.length) { missingSources.push(name); continue; }
-    let acc = "";
-    for (const rel of files) acc += `${rel}\0${await io.readFile(pj(env.os, src, ...rel.split("/")))}\0`;
+    const entries: Array<{ rel: string; content: string }> = [];
+    for (const rel of files) entries.push({ rel, content: (await io.readFile(pj(env.os, src, ...rel.split("/")))) ?? "null" });
     const dst = pj(env.os, plugin, "skills", name);
-    skills.push({ name, src, files, hash: sha256(acc), dst, inCowork: ran3p && (await io.isDir(dst)), ownedHash: owned[name] ?? null, manifest: manifest && manifest !== "invalid" ? manifest.skills.find((s) => s.name === name) : undefined });
+    skills.push({ name, src, files, hash: sourceHash(entries), dst, inCowork: ran3p && (await io.isDir(dst)), ownedHash: owned[name] ?? null, manifest: manifest && manifest !== "invalid" ? manifest.skills.find((s) => s.name === name) : undefined });
   }
   return { installed: install.installed, ran3p, plugin, manifestPath, manifest, skills, missingSources };
 }

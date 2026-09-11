@@ -1,6 +1,11 @@
 import { claudeConfig } from "../artifacts/claude-config.ts";
+import { desktopInference } from "../artifacts/desktop-inference.ts";
+import { desktopMcp } from "../artifacts/desktop-mcp.ts";
+import { desktopSkills } from "../artifacts/desktop-skills.ts";
 import { gatewayLaunch } from "../artifacts/gateway-launch.ts";
+import { hostedConnectors } from "../artifacts/hosted-connectors.ts";
 import { mct } from "../artifacts/mct.ts";
+import { openBrainAuth } from "../artifacts/open-brain-auth.ts";
 import { plugins } from "../artifacts/plugins.ts";
 import { prereqs } from "../artifacts/prereqs.ts";
 import { projectMemory } from "../artifacts/project-memory.ts";
@@ -10,8 +15,8 @@ import type { Profile } from "../engine/profile.ts";
 export const aca34: Profile = {
   name: "aca34",
   provider: "gateway",
-  surfaces: ["code"],                       // "desktop" joins in Phase 3
-  artifacts: [prereqs, claudeConfig, secrets, gatewayLaunch, projectMemory, mct, plugins],
+  surfaces: ["code", "desktop"],
+  artifacts: [prereqs, claudeConfig, secrets, gatewayLaunch, projectMemory, mct, plugins, desktopInference, desktopMcp, desktopSkills, openBrainAuth, hostedConnectors],
   options: {
     "claude-config": { sshUrl: "git@github.com:merpuya/dotclaude.git", httpsUrl: "https://github.com/merpuya/dotclaude.git" },
     secrets: { services: ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key", "mct-sync-token"] },
@@ -36,6 +41,16 @@ export const aca34: Profile = {
         "security-guidance@claude-plugins-official", "skill-creator@claude-plugins-official",
         "pyright-lsp@claude-plugins-official", "swift-lsp@claude-plugins-official", "typescript-lsp@claude-plugins-official",
       ],
+    },
+    "desktop-inference": { baseUrl: "https://api.ai.it.cornell.edu" },
+    "desktop-mcp": { tokens: { MECP_DEVICE_TOKEN: "mecp-device-token" } },
+    // Cowork copies of dotclaude skills; mecp-conventions first (spec §4 row 10). Add names from ~/.claude/skills as they prove useful in Cowork.
+    "desktop-skills": { skills: ["mecp-conventions"] },
+    "open-brain-auth": { server: "openbrain" },
+    // What the owner uses on claude.ai today that a gateway box cannot have (spec §4 row 12; 3P feature matrix 2026-09-10).
+    "hosted-connectors": {
+      connectors: ["Gmail", "Google Calendar", "Google Drive", "FGAC.ai (Google Workspace)", "Todoist", "Airtable", "Home Assistant", "Trello", "Wispr Flow", "n8n", "Shopify", "Supabase", "Vercel", "Cloudflare Developer Platform", "Microsoft Learn", "Context7", "AccuWeather"],
+      features: ["Claude in Chrome", "claude.ai web access", "Voice mode", "Claude Design", "project and plugin sharing", "chat-history search"],
     },
   },
 };
