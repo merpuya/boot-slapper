@@ -1,0 +1,7 @@
+# The rolling buffer (now.md, today-*.md, recent.md, archive*.md, core-memories.md)
+# stays local. The handoff archive IS tracked so notes reach fresh clones —
+# fleet convention (owner decision 2026-08-15: handoffs committed, all devices, all repos).
+*
+!.gitignore
+!handoffs/
+!handoffs/**
