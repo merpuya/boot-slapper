@@ -6,6 +6,9 @@ import path from "node:path";
 export interface ExecResult { code: number; stdout: string; stderr: string }
 export interface ExecOpts { stdin?: string; cwd?: string; env?: Record<string, string>; timeout?: number }
 
+export interface FetchInit { method?: "GET"; headers?: Record<string, string>; timeout?: number }
+export interface FetchResult { status: number; body: string }
+
 export interface Io {
   readonly env: Record<string, string | undefined>;
   readonly platform: NodeJS.Platform;
@@ -21,6 +24,7 @@ export interface Io {
   readdir(p: string): Promise<string[]>;
   exec(cmd: string, args: string[], opts?: ExecOpts): Promise<ExecResult>;
   which(cmd: string): Promise<string | null>;
+  fetch(url: string, init?: FetchInit): Promise<FetchResult>;
 }
 
 export class RealIo implements Io {
@@ -91,6 +95,14 @@ export class RealIo implements Io {
     const first = r.stdout.split(/\r?\n/).find((l) => l.trim().length > 0);
     return first ? first.trim() : null;
   }
+  async fetch(url: string, init: FetchInit = {}): Promise<FetchResult> {
+    try {
+      const r = await globalThis.fetch(url, { method: init.method ?? "GET", headers: init.headers, signal: AbortSignal.timeout(init.timeout ?? 15_000), redirect: "manual" });
+      return { status: r.status, body: await r.text() };
+    } catch (e) {
+      return { status: 0, body: e instanceof Error ? (e.cause instanceof Error ? `${e.message}: ${e.cause.message}` : e.message) : String(e) };
+    }
+  }
 }
 
 export interface ExecCall { cmd: string; args: string[]; opts: ExecOpts }
@@ -106,7 +118,9 @@ export class FakeIo implements Io {
   modes = new Map<string, number>();
   calls: ExecCall[] = [];
   writes: string[] = [];
+  fetches: Array<{ url: string; init: FetchInit }> = [];
   private handlers: Array<{ match: (cmd: string, args: string[]) => boolean; handler: Handler }> = [];
+  private fetchHandlers: Array<{ match: (url: string) => boolean; handler: (url: string, init: FetchInit) => FetchResult }> = [];
   private pathMap: Record<string, string>;
 
   constructor(init: {
@@ -129,6 +143,7 @@ export class FakeIo implements Io {
     while (d && d !== "/" && d !== ".") { this.dirs.add(d); d = path.posix.dirname(d); }
   }
   on(match: (cmd: string, args: string[]) => boolean, handler: Handler) { this.handlers.push({ match, handler }); }
+  onFetch(match: (url: string) => boolean, handler: (url: string, init: FetchInit) => FetchResult) { this.fetchHandlers.push({ match, handler }); }
 
   async readFile(p: string) { return this.files.get(p) ?? null; }
   async writeFile(p: string, s: string, opts?: { mode?: number }) {
@@ -158,4 +173,9 @@ export class FakeIo implements Io {
     return { code: 127, stdout: "", stderr: `${cmd}: not handled` };
   }
   async which(cmd: string) { return this.pathMap[cmd] ?? null; }
+  async fetch(url: string, init: FetchInit = {}): Promise<FetchResult> {
+    this.fetches.push({ url, init });
+    for (const h of this.fetchHandlers) if (h.match(url)) return h.handler(url, init);
+    return { status: 0, body: "fetch not handled" };
+  }
 }

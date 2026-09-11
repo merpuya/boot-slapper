@@ -60,3 +60,19 @@ describe("RealIo.exec", () => {
     expect(r.code).toBe(0);
   });
 });
+
+describe("Io.fetch", () => {
+  it("FakeIo records calls, answers via onFetch, and never rejects", async () => {
+    const io = new FakeIo();
+    io.onFetch((u) => u.endsWith("/v1/models"), () => ({ status: 200, body: '{"data":[]}' }));
+    expect(await io.fetch("https://gw/v1/models", { headers: { Authorization: "Bearer x" } })).toEqual({ status: 200, body: '{"data":[]}' });
+    expect(await io.fetch("https://gw/other")).toEqual({ status: 0, body: "fetch not handled" });
+    expect(io.fetches.map((f) => f.url)).toEqual(["https://gw/v1/models", "https://gw/other"]);
+  });
+  it("RealIo resolves {status: 0} on a connection failure instead of throwing", async () => {
+    const io = new RealIo();
+    const r = await io.fetch("http://127.0.0.1:1/nope", { timeout: 2000 });
+    expect(r.status).toBe(0);
+    expect(r.body.length).toBeGreaterThan(0);
+  });
+});

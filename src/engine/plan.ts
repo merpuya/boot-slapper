@@ -5,8 +5,15 @@ export interface PlanEntry { artifact: Artifact; state: State; steps: Step[]; op
 export type Plan = PlanEntry[];
 
 export function selectArtifacts(profile: Profile, filter: { only?: string[]; skip?: string[] } = {}): Artifact[] {
-  const onSurface = profile.artifacts.filter((a) => a.surfaces.some((s) => profile.surfaces.includes(s)));
-  const ordered = resolveOrder(onSurface);
+  const byId = new Map(profile.artifacts.map((a) => [a.id, a]));
+  const wanted = new Set<string>();
+  const pull = (a: Artifact) => {
+    if (wanted.has(a.id)) return;
+    wanted.add(a.id);
+    for (const r of a.requires) { const dep = byId.get(r); if (dep) pull(dep); }     // an unknown id is left for resolveOrder to report
+  };
+  for (const a of profile.artifacts) if (a.surfaces.some((s) => profile.surfaces.includes(s))) pull(a);
+  const ordered = resolveOrder(profile.artifacts.filter((a) => wanted.has(a.id)));
   return ordered.filter((a) => (!filter.only || filter.only.includes(a.id)) && !(filter.skip ?? []).includes(a.id));
 }
 

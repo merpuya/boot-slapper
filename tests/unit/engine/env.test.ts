@@ -47,3 +47,11 @@ describe("resolveEnv", () => {
     expect(env).toEqual({ provider: "gateway", surface: "code", os: "darwin", home: "/h", label: "BOX", claudeDir: "/h/.claude" });
   });
 });
+
+describe("probeEnv desktop version", () => {
+  it("reports the Desktop version when the app is installed", async () => {
+    const io = new FakeIo({ dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>" } });
+    expect(await probeEnv(io)).toMatchObject({ desktopInstalled: true, desktopVersion: "1.49585.0" });
+    expect(await probeEnv(new FakeIo())).toMatchObject({ desktopInstalled: false, desktopVersion: null });
+  });
+});
