@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import {
-  adoptedEntry, appliedEntry, bsDir, desktopInstall, desktopRunning, ENTRY_NAME, managedSources, managedTakeover, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
+  adoptedEntry, appliedEntry, bsDir, cfgGet, desktopInstall, desktopRunning, ENTRY_NAME, managedSources, managedTakeover, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
   runningError, versionAtLeast, writeLibraryEntry, writeSidecar, type OurEntry,
 } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
@@ -64,7 +64,8 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const wanted = wantedServers(bundle && bundle !== "invalid" ? bundle : {}, o, env.os, env.home, account);
   const staleHelpers: string[] = [];
   for (const h of wanted.helpers) if ((await io.readFile(h.path)) !== h.body) staleHelpers.push(h.path);
-  const current = (entryDoc?.mcp as { managedServers?: ManagedServer[] } | undefined)?.managedServers ?? [];
+  // v2 nests them under mcp.managedServers; a v1 flat document (typical of a hand-authored entry) keeps managedMcpServers at the top level.
+  const current = (cfgGet(entryDoc, ["mcp", "managedServers"], "managedMcpServers") as ManagedServer[] | undefined) ?? [];
   const owned = (await readSidecar(io, env.os, env.home)).servers ?? [];
   const foreign = current.filter((s) => !owned.includes(s.name) && !wanted.servers.some((w) => w.name === s.name));
   const merged = [...foreign, ...wanted.servers];

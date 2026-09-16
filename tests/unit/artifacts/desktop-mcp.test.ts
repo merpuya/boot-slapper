@@ -178,4 +178,21 @@ describe("desktop-mcp", () => {
     expect(await desktopMcp.detect(ctx)).toMatchObject({ kind: "absent", details: expect.arrayContaining([expect.stringMatching(/creates it earlier in this run/)]) });
     expect(io.writes).toEqual([HELPER]);   // nothing but the helper, ever: the foreign entry was never written
   });
+  // A hand-authored applied entry is usually v1 flat (JCB-AL-ACA34's 'Cornell' is), where the servers live under the
+  // top-level managedMcpServers key rather than v2's mcp.managedServers; the reader must accept both shapes.
+  it("adopt path on a v1 flat entry: servers under managedMcpServers are read; present once the helper is written", async () => {
+    const FID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const flat = { inferenceProvider: "gateway", inferenceGatewayBaseUrl: "https://gw", inferenceGatewayApiKey: "k", managedMcpServers: expectedServers };
+    const { ctx, io } = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: {
+      [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle),
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: FID, entries: [{ id: FID, name: "Cornell" }] }), [`${L}/${FID}.json`]: JSON.stringify(flat),
+    } });
+    secrets(io);
+    const s = await desktopMcp.detect(ctx);
+    expect(s).toEqual({ kind: "drifted", details: [`headers helper absent or stale: mecp — will write ${HELPER}`] });
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s));
+    expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+    expect((await desktopMcp.verify(ctx)).filter((x) => x.id.startsWith("server.")).map((x) => x.status)).toEqual(["ok", "ok"]);
+    expect(io.writes).toEqual([HELPER]);
+  });
 });
