@@ -13,7 +13,11 @@ const step = (s: string, title: string): Step => ({ id: `${ID}.${s}`, title });
 /** `baseUrl` is desktop-inference's: it decides whether that artifact adopts a foreign applied entry, which this one must know too. */
 interface Opts { mcpBundle?: string; tokens: Record<string, SecretService>; baseUrl?: string }
 export type BundleDoc = { mcpServers?: Record<string, { type?: string; url?: string; headers?: Record<string, string> }> };
-export interface ManagedServer { name: string; transport: "http" | "sse"; url: string; oauth?: true; headersHelper?: string; headersHelperTtlSec?: number }
+/** `oauth` is written as `true`; Desktop rewrites the applied entry after its OAuth flow and normalizes it to an object (`{ mode: "dcr" }` seen 2026-09-16), so equality is by presence. */
+export interface ManagedServer { name: string; transport: "http" | "sse"; url: string; oauth?: true | Record<string, unknown>; headersHelper?: string; headersHelperTtlSec?: number }
+const oauthNorm = (s: ManagedServer): ManagedServer => { const { oauth, ...rest } = s; return oauth ? { ...rest, oauth: true } : rest; };
+export const sameServer = (a: ManagedServer, b: ManagedServer): boolean => deepEqual(oauthNorm(a), oauthNorm(b));
+const sameServers = (a: ManagedServer[], b: ManagedServer[]): boolean => a.length === b.length && a.every((x, i) => sameServer(x, b[i]));
 export const D = { helper: "headers helper absent or stale:", servers: "managed MCP servers differ:", entry: "no boot-slapper entry", running: "Claude Desktop is running" } as const;
 const IN_APP = "Developer → Configure Third-Party Inference… → Connectors, then Apply Changes";
 const PLACEHOLDER = /\$\{([A-Z0-9_]+)\}/;
@@ -68,13 +72,15 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const current = (cfgGet(entryDoc, ["mcp", "managedServers"], "managedMcpServers") as ManagedServer[] | undefined) ?? [];
   const owned = (await readSidecar(io, env.os, env.home)).servers ?? [];
   const foreign = current.filter((s) => !owned.includes(s.name) && !wanted.servers.some((w) => w.name === s.name));
-  const merged = [...foreign, ...wanted.servers];
+  // Keep the app's oauth object on a server we already wrote rather than putting `true` back over it.
+  const keepOauth = (w: ManagedServer): ManagedServer => { const c = current.find((x) => x.name === w.name); return w.oauth && c && typeof c.oauth === "object" ? { ...w, oauth: c.oauth } : w; };
+  const merged = [...foreign, ...wanted.servers.map(keepOauth)];
   return {
     installed: install.installed, version: install.version,
     versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),
     takeover: managedTakeover(sources), managedKeys: sources.reduce((n, s) => n + s.keys.length, 0),
     running: install.installed ? await desktopRunning(io, env.os) : false,
-    bundlePath, bundle, ours, adopted, wanted, staleHelpers, current, owned, merged, serversCurrent: deepEqual(current, merged),
+    bundlePath, bundle, ours, adopted, wanted, staleHelpers, current, owned, merged, serversCurrent: sameServers(current, merged),
   };
 }
 
@@ -149,7 +155,7 @@ export const desktopMcp: Artifact = {
     for (const w of f.wanted.servers) {
       const cur = f.current.find((s) => s.name === w.name);
       const fix = f.adopted ? `add it in the app (${IN_APP}) — the applied configuration '${f.adopted.name}' is not boot-slapper's` : `run bs onboard --only ${ID}`;
-      out.push(cur && deepEqual(cur, w) ? { id: `server.${w.name}`, status: "ok", message: `${w.name}: ${w.url} (${w.oauth ? "oauth" : "headers helper"})` } : { id: `server.${w.name}`, status: "error", message: `${w.name} missing or stale in the Claude Desktop configuration — ${fix}` });
+      out.push(cur && sameServer(cur, w) ? { id: `server.${w.name}`, status: "ok", message: `${w.name}: ${w.url} (${w.oauth ? "oauth" : "headers helper"})` } : { id: `server.${w.name}`, status: "error", message: `${w.name} missing or stale in the Claude Desktop configuration — ${fix}` });
       if (w.headersHelper) {
         const body = f.wanted.helpers.find((h) => h.path === w.headersHelper)?.body;
         const helperFix = f.adopted && !f.serversCurrent ? `bs onboard writes it once ${w.name} is in the applied configuration` : "run bs onboard";

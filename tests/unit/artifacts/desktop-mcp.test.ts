@@ -195,4 +195,25 @@ describe("desktop-mcp", () => {
     expect((await desktopMcp.verify(ctx)).filter((x) => x.id.startsWith("server.")).map((x) => x.status)).toEqual(["ok", "ok"]);
     expect(io.writes).toEqual([HELPER]);
   });
+  // Observed on JCB-AL-ACA34 2026-09-16: after the in-app OAuth flow Desktop rewrote the applied entry and normalized
+  // openbrain's `oauth: true` into an object (`{ mode: … }`). Presence of oauth is the fact we own, not its spelling —
+  // and a rewrite of ours must not put `true` back over the app's object.
+  it("an oauth entry the app normalized into an object is current, not stale; a rewrite keeps the app's object", async () => {
+    const appForm = { mode: "dcr" };
+    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), mcp: { managedServers: [{ ...expectedServers[0], oauth: appForm }, expectedServers[1]] } };
+    const { ctx, io } = await box({ [HELPER]: "stale" }, entry); secrets(io);
+    io.files.set("/h/.config/boot-slapper/desktop.json", JSON.stringify({ entryId: ID, servers: ["openbrain", "mecp"] }));
+    const s = await desktopMcp.detect(ctx);
+    expect(s).toEqual({ kind: "drifted", details: [`headers helper absent or stale: mecp — will write ${HELPER}`] });   // only the helper
+    const c = Object.fromEntries((await desktopMcp.verify(ctx)).map((x) => [x.id, x]));
+    expect(c["server.openbrain"]).toMatchObject({ status: "ok" });
+    // force a servers rewrite (bundle gains a server) and check the app's oauth object survives
+    io.files.set("/h/.claude/mcp/gateway.json", JSON.stringify({ mcpServers: { ...bundle.mcpServers, extra: { type: "http", url: "https://x/mcp" } } }));
+    const s2 = await desktopMcp.detect(ctx);
+    expect(s2.kind).toBe("drifted");
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s2));
+    const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
+    expect(doc.mcp.managedServers.find((x: { name: string }) => x.name === "openbrain").oauth).toEqual(appForm);
+    expect(doc.mcp.managedServers.find((x: { name: string }) => x.name === "extra").oauth).toBe(true);
+  });
 });
