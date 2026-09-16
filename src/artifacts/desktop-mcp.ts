@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import {
-  bsDir, desktopInstall, desktopRunning, ENTRY_NAME, managedSources, managedTakeover, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
+  adoptedEntry, appliedEntry, bsDir, desktopInstall, desktopRunning, ENTRY_NAME, managedSources, managedTakeover, MIN_DESKTOP_VERSION, ourEntry, readJson, readSidecar,
   runningError, versionAtLeast, writeLibraryEntry, writeSidecar, type OurEntry,
 } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
@@ -10,10 +10,12 @@ import { HELPER_MODE, helperPath, renderHeadersHelper } from "./templates/deskto
 
 const ID = "desktop-mcp";
 const step = (s: string, title: string): Step => ({ id: `${ID}.${s}`, title });
-interface Opts { mcpBundle?: string; tokens: Record<string, SecretService> }
+/** `baseUrl` is desktop-inference's: it decides whether that artifact adopts a foreign applied entry, which this one must know too. */
+interface Opts { mcpBundle?: string; tokens: Record<string, SecretService>; baseUrl?: string }
 export type BundleDoc = { mcpServers?: Record<string, { type?: string; url?: string; headers?: Record<string, string> }> };
 export interface ManagedServer { name: string; transport: "http" | "sse"; url: string; oauth?: true; headersHelper?: string; headersHelperTtlSec?: number }
 export const D = { helper: "headers helper absent or stale:", servers: "managed MCP servers differ:", entry: "no boot-slapper entry", running: "Claude Desktop is running" } as const;
+const IN_APP = "Developer → Configure Third-Party Inference… → Connectors, then Apply Changes";
 const PLACEHOLDER = /\$\{([A-Z0-9_]+)\}/;
 
 /**
@@ -42,7 +44,8 @@ export function wantedServers(bundle: BundleDoc, o: Opts, os: Os, home: string, 
 interface Facts {
   installed: boolean; version: string | null; versionOld: boolean; takeover: string | null; managedKeys: number; running: boolean;
   bundlePath: string; bundle: BundleDoc | null | "invalid";
-  ours: OurEntry | null | "invalid"; wanted: ReturnType<typeof wantedServers>; staleHelpers: string[]; current: ManagedServer[]; owned: string[]; merged: ManagedServer[]; serversCurrent: boolean;
+  ours: OurEntry | null | "invalid"; adopted: { name: string } | null;
+  wanted: ReturnType<typeof wantedServers>; staleHelpers: string[]; current: ManagedServer[]; owned: string[]; merged: ManagedServer[]; serversCurrent: boolean;
 }
 
 async function facts(ctx: Ctx): Promise<Facts> {
@@ -53,11 +56,15 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const install = await desktopInstall(io, env.os, env.home);
   const sources = install.installed ? await managedSources(io, env.os) : [];
   const ours = install.installed ? await ourEntry(io, env.os, env.home) : null;
+  const applied = install.installed ? await appliedEntry(io, env.os, env.home) : null;
+  const adopted = adoptedEntry(applied, o.baseUrl);
+  // Servers are read from the entry Desktop actually applies: the adopted foreign one when desktop-inference adopts, else ours.
+  const entryDoc = adopted && applied && applied !== "invalid" ? applied.doc : ours && ours !== "invalid" ? ours.doc : null;
   const account = defaultAccount(io);
   const wanted = wantedServers(bundle && bundle !== "invalid" ? bundle : {}, o, env.os, env.home, account);
   const staleHelpers: string[] = [];
   for (const h of wanted.helpers) if ((await io.readFile(h.path)) !== h.body) staleHelpers.push(h.path);
-  const current = (ours && ours !== "invalid" ? ((ours.doc.mcp as { managedServers?: ManagedServer[] } | undefined)?.managedServers ?? []) : []);
+  const current = (entryDoc?.mcp as { managedServers?: ManagedServer[] } | undefined)?.managedServers ?? [];
   const owned = (await readSidecar(io, env.os, env.home)).servers ?? [];
   const foreign = current.filter((s) => !owned.includes(s.name) && !wanted.servers.some((w) => w.name === s.name));
   const merged = [...foreign, ...wanted.servers];
@@ -66,7 +73,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
     versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),
     takeover: managedTakeover(sources), managedKeys: sources.reduce((n, s) => n + s.keys.length, 0),
     running: install.installed ? await desktopRunning(io, env.os) : false,
-    bundlePath, bundle, ours, wanted, staleHelpers, current, owned, merged, serversCurrent: deepEqual(current, merged),
+    bundlePath, bundle, ours, adopted, wanted, staleHelpers, current, owned, merged, serversCurrent: deepEqual(current, merged),
   };
 }
 
@@ -81,6 +88,9 @@ export const desktopMcp: Artifact = {
     if (f.bundle === null) return { kind: "blocked", reason: `${f.bundlePath} missing — it is a tracked dotclaude file; check the claude-config artifact` };
     if (f.bundle === "invalid") return { kind: "blocked", reason: `${f.bundlePath} is not valid JSON — fix it in dotclaude` };
     if (f.ours === "invalid") return { kind: "blocked", reason: "boot-slapper config-library entry is not valid JSON — see desktop-inference" };
+    // Adopt path: desktop-inference is present on a foreign applied entry and never writes ours, so there is no entry
+    // to put the servers in and none coming. Foreign entries are never edited; the servers are added in the app.
+    if (f.adopted && !f.serversCurrent) return { kind: "blocked", reason: `the applied configuration '${f.adopted.name}' is not boot-slapper's and is never edited — add the managed MCP servers (${f.wanted.servers.map((s) => s.name).join(", ")}) in the app (${IN_APP}); or rename that entry '${ENTRY_NAME}' so boot-slapper manages it, or remove it, and re-run${f.wanted.helpers.length ? `. bs onboard then writes the headers helper the entry names (${f.wanted.helpers.map((h) => h.path).join(", ")})` : ""}` };
     for (const s of f.wanted.skipped) ctx.emit({ type: "note", level: "warn", message: `${ID}: skipping ${s}` });
     const details: string[] = [];
     for (const h of f.wanted.helpers) if (f.staleHelpers.includes(h.path)) details.push(`${D.helper} ${f.wanted.servers.find((s) => s.headersHelper === h.path)?.name ?? "?"} — will write ${h.path}`);
@@ -89,7 +99,7 @@ export const desktopMcp: Artifact = {
     // fresh box desktop-inference has not created the entry yet even though it is in the same plan (and
     // blocking here also dropped open-brain-auth, which requires this artifact). Plan the work; the servers
     // apply step re-reads facts() and refuses if desktop-inference really did not run.
-    if (f.ours === null) details.unshift(`${D.entry} yet — desktop-inference creates it earlier in this run`);
+    if (f.ours === null && !f.adopted) details.unshift(`${D.entry} yet — desktop-inference creates it earlier in this run`);
     if (details.length && f.running) details.push(`${D.running} — quit it before applying (the configuration is read at launch)`);
     if (!details.length) return { kind: "present" };
     return f.current.length ? { kind: "drifted", details } : { kind: "absent", details };
@@ -134,12 +144,15 @@ export const desktopMcp: Artifact = {
     out.push(f.takeover ? { id: "managed", status: "error", message: `managed configuration owns Claude Desktop: ${f.takeover} — local settings are ignored, managed MCP servers may differ from what boot-slapper writes` }
       : { id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
     if (f.bundle === null || f.bundle === "invalid") { out.push({ id: "bundle", status: "error", message: `${f.bundlePath} missing or invalid` }); return out; }
+    if (f.adopted) out.push({ id: "entry", status: "ok", message: `reading managed servers from the applied configuration '${f.adopted.name}' — not managed by boot-slapper, never edited` });
     for (const w of f.wanted.servers) {
       const cur = f.current.find((s) => s.name === w.name);
-      out.push(cur && deepEqual(cur, w) ? { id: `server.${w.name}`, status: "ok", message: `${w.name}: ${w.url} (${w.oauth ? "oauth" : "headers helper"})` } : { id: `server.${w.name}`, status: "error", message: `${w.name} missing or stale in the Claude Desktop configuration — run bs onboard --only ${ID}` });
+      const fix = f.adopted ? `add it in the app (${IN_APP}) — the applied configuration '${f.adopted.name}' is not boot-slapper's` : `run bs onboard --only ${ID}`;
+      out.push(cur && deepEqual(cur, w) ? { id: `server.${w.name}`, status: "ok", message: `${w.name}: ${w.url} (${w.oauth ? "oauth" : "headers helper"})` } : { id: `server.${w.name}`, status: "error", message: `${w.name} missing or stale in the Claude Desktop configuration — ${fix}` });
       if (w.headersHelper) {
         const body = f.wanted.helpers.find((h) => h.path === w.headersHelper)?.body;
-        out.push((await ctx.io.readFile(w.headersHelper)) === body ? { id: `helper.${w.name}`, status: "ok", message: `headers helper current: ${w.headersHelper}` } : { id: `helper.${w.name}`, status: "error", message: `headers helper missing or stale: ${w.headersHelper} — run bs onboard` });
+        const helperFix = f.adopted && !f.serversCurrent ? `bs onboard writes it once ${w.name} is in the applied configuration` : "run bs onboard";
+        out.push((await ctx.io.readFile(w.headersHelper)) === body ? { id: `helper.${w.name}`, status: "ok", message: `headers helper current: ${w.headersHelper}` } : { id: `helper.${w.name}`, status: "error", message: `headers helper missing or stale: ${w.headersHelper} — ${helperFix}` });
         const m = PLACEHOLDER.exec(Object.entries(f.bundle.mcpServers?.[w.name]?.headers ?? {}).find(([k]) => k.toLowerCase() === "authorization")?.[1] ?? "");
         const service = m ? o.tokens[m[1]] : undefined;
         if (service) {

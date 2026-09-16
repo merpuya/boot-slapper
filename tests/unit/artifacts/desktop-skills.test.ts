@@ -107,4 +107,20 @@ describe("desktop-skills", () => {
     expect(b.files.map((f) => f.path)).toEqual(["desktop-skills/mecp-conventions/SKILL.md", "desktop-skills/mecp-conventions/references/a.md", "desktop-skills/handoff/SKILL.md"]);
     expect(io.writes.filter((w) => w.startsWith("/h/.claude"))).toEqual([]);
   });
+  // Adopt path (CLAUDE.md follow-up): Cowork keys the skills plugin by the *applied* configuration's org, which may be a
+  // foreign entry desktop-inference adopted; reading only our entry fell back to the sentinel and copied into the wrong tree.
+  it("org segment follows deploymentOrganizationUuid on the applied entry even when that entry is not boot-slapper's", async () => {
+    const org = "12345678-1234-4123-8123-123456789abc"; const FID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const p = `${DATA}/local-agent-mode-sessions/skills-plugin/${org}/${ACCT}`;
+    const { ctx, io } = await makeCtx({ opts: { skills: ["handoff"] }, env: { USER: "aca34" }, dirs: [APP, `${p}/skills`], files: {
+      [`${APP}/Contents/Info.plist`]: PLIST, [`${DATA}/ant-did`]: Buffer.from(ACCT).toString("base64"),
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: FID, entries: [{ id: FID, name: "Cornell" }] }),
+      [`${L}/${FID}.json`]: JSON.stringify({ $schemaVersion: 2, inference: { provider: "gateway", baseUrl: "https://gw" }, telemetry: { orgUuid: org } }),
+      [`${p}/manifest.json`]: JSON.stringify({ lastUpdated: 1, skills: [] }), "/h/.claude/skills/handoff/SKILL.md": "---\ndescription: d\n---\n",
+    } });
+    const s = await desktopSkills.detect(ctx);
+    expect(s).toMatchObject({ kind: "absent", details: [`${D.copy} handoff — will copy to ${p}/skills/handoff`] });
+    await desktopSkills.apply(ctx, desktopSkills.plan(ctx, s));
+    expect(io.files.has(`${p}/skills/handoff/SKILL.md`)).toBe(true);
+  });
 });

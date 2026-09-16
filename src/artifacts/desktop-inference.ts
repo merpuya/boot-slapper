@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import {
-  bsDir, cfgGet, desktopInstall, desktopRunning, managedSources, managedTakeover, MIN_DESKTOP_VERSION, newEntryId, ourEntry, readLibraryMeta, readLibraryEntry,
+  adoptedEntry, appliedEntry, bsDir, desktopInstall, desktopRunning, managedSources, managedTakeover, MIN_DESKTOP_VERSION, newEntryId, ourEntry,
   runningError, upsertMeta, versionAtLeast, writeLibraryEntry, writeSidecar, ENTRY_NAME, type DesktopInstall, type OurEntry,
 } from "../engine/desktop.ts";
 import { defaultAccount } from "../engine/secrets/store.ts";
@@ -52,17 +52,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const helperBody = renderCredentialHelper(env.os, SECRET, account);
   const wanted = wantedDoc(o, helper);
   const ours = install.installed ? await ourEntry(io, env.os, env.home) : null;
-  let adopted: Facts["adopted"] = null;
-  const meta = install.installed ? await readLibraryMeta(io, env.os, env.home) : null;
-  if (meta && meta !== "invalid" && !(ours && ours !== "invalid" && ours.applied)) {
-    const applied = meta.entries.find((e) => e.id === meta.appliedId);
-    const doc = applied ? await readLibraryEntry(io, env.os, env.home, applied.id) : null;
-    if (applied && doc && doc !== "invalid" && cfgGet(doc, ["inference", "provider"], "inferenceProvider") === "gateway") {
-      const base = String(cfgGet(doc, ["inference", "baseUrl"], "inferenceGatewayBaseUrl") ?? "");
-      const cred = cfgGet(doc, ["inference", "credential", "kind"], "inferenceCredentialKind") ?? doc.inferenceGatewayApiKey ?? doc.inferenceCredentialHelper;
-      if (trimSlash(base) === trimSlash(o.baseUrl) && cred !== undefined && applied.name !== ENTRY_NAME) adopted = { name: applied.name, baseUrl: base };
-    }
-  }
+  const adopted = install.installed ? adoptedEntry(await appliedEntry(io, env.os, env.home), o.baseUrl) : null;
   const docCurrent = ours !== null && ours !== "invalid" && deepEqual(merged(ours.doc, wanted), ours.doc);
   return {
     install, versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),

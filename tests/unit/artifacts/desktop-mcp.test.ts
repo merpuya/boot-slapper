@@ -6,7 +6,7 @@ import { ENTRY_NAME } from "../../../src/engine/desktop.ts";
 import type { FakeIo } from "../../../src/engine/io.ts";
 import { makeCtx } from "../helpers.ts";
 
-const opts = { tokens: { MECP_DEVICE_TOKEN: "mecp-device-token" as const } };
+const opts = { tokens: { MECP_DEVICE_TOKEN: "mecp-device-token" as const }, baseUrl: "https://gw" };
 const APP = "/Applications/Claude.app";
 const PLIST = "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>";
 const L = "/h/Library/Application Support/Claude-3p/configLibrary";
@@ -143,5 +143,39 @@ describe("desktop-mcp", () => {
     const doc = JSON.parse(io.files.get(`${lib}\\${ID}.json`)!);
     expect(doc.mcp.managedServers[1].headersHelper).toBe(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`);
     expect(io.files.get(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`)).toContain("Retrieve('mecp-device-token'");
+  });
+  // Adopt path (CLAUDE.md follow-up): desktop-inference adopts a foreign applied gateway entry and never writes ours,
+  // so "creates it earlier in this run" was wrong on every run and verify pointed at an onboard that cannot help.
+  it("adopt path: a foreign applied gateway entry blocks with its own reason; verify points at the app, not bs onboard; present once the entry carries the servers", async () => {
+    const FID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const foreign = { $schemaVersion: 2, inference: { provider: "gateway", baseUrl: "https://gw/", credential: { kind: "static", apiKey: "x" } } };
+    const { ctx, io } = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: {
+      [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle),
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: FID, entries: [{ id: FID, name: "Cornell" }] }), [`${L}/${FID}.json`]: JSON.stringify(foreign),
+    } });
+    secrets(io);
+    const s = await desktopMcp.detect(ctx);
+    expect(s).toEqual({ kind: "blocked", reason: expect.stringMatching(/applied configuration 'Cornell' is not boot-slapper's and is never edited/) });
+    expect((s as { reason: string }).reason).toMatch(/rename that entry 'boot-slapper'/);
+    expect(desktopMcp.plan(ctx, s)).toEqual([]);
+    const c = Object.fromEntries((await desktopMcp.verify(ctx)).map((x) => [x.id, x]));
+    expect(c["server.openbrain"]).toMatchObject({ status: "error", message: expect.stringMatching(/'Cornell'/) });
+    expect(c["server.openbrain"].message).not.toMatch(/bs onboard/);
+    expect(c["server.mecp"].message).not.toMatch(/bs onboard/);
+    // onboard is blocked here, so the helper line must not send the owner to it yet; both say the helper follows the servers
+    expect(c["helper.mecp"]).toMatchObject({ status: "error", message: expect.stringMatching(/once mecp is in the applied configuration/) });
+    expect((s as { reason: string }).reason).toMatch(new RegExp(`headers helper.*${HELPER}`));
+    // the foreign entry already carrying the servers satisfies the profile; only our headers helper (which that entry names) is still written
+    io.files.set(`${L}/${FID}.json`, JSON.stringify({ ...foreign, mcp: { managedServers: expectedServers } }));
+    const s2 = await desktopMcp.detect(ctx);
+    expect(s2).toEqual({ kind: "drifted", details: [`headers helper absent or stale: mecp — will write ${HELPER}`] });   // drifted: the applied entry already carries servers
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s2));
+    expect(io.writes).toEqual([HELPER]);
+    expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+    expect((await desktopMcp.verify(ctx)).filter((x) => x.id.startsWith("server.")).map((x) => x.status)).toEqual(["ok", "ok"]);
+    // a foreign applied entry for another provider is not adopted — desktop-inference adds ours, so the fresh-box path stands
+    io.files.set(`${L}/${FID}.json`, JSON.stringify({ inferenceProvider: "anthropic", inferenceAnthropicApiKey: "k" }));
+    expect(await desktopMcp.detect(ctx)).toMatchObject({ kind: "absent", details: expect.arrayContaining([expect.stringMatching(/creates it earlier in this run/)]) });
+    expect(io.writes).toEqual([HELPER]);   // nothing but the helper, ever: the foreign entry was never written
   });
 });

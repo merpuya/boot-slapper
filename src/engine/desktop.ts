@@ -227,6 +227,41 @@ export async function ourEntry(io: Io, os: Os, home: string): Promise<OurEntry |
   return { id: hit.id, doc: doc ?? {}, applied: meta.appliedId === hit.id };
 }
 
+export interface AppliedEntry { id: string; name: string; doc: Record<string, unknown>; ours: boolean }
+
+/**
+ * The entry `_meta.json` currently applies, whoever wrote it. `ours` when it is the sidecar's id or carries our
+ * name. Cowork and the inference settings follow the *applied* entry, so artifacts that only need to read the live
+ * configuration (desktop-skills' org segment, desktop-mcp's adopt check) use this rather than `ourEntry`.
+ */
+export async function appliedEntry(io: Io, os: Os, home: string): Promise<AppliedEntry | null | "invalid"> {
+  const meta = await readLibraryMeta(io, os, home);
+  if (meta === null || meta === "invalid") return meta;
+  const hit = meta.entries.find((e) => e.id === meta.appliedId);
+  if (!hit) return null;
+  const doc = await readLibraryEntry(io, os, home, hit.id);
+  if (doc === "invalid") return "invalid";
+  const side = await readSidecar(io, os, home);
+  return { id: hit.id, name: hit.name, doc: doc ?? {}, ours: hit.id === side.entryId || hit.name === ENTRY_NAME };
+}
+
+const trimSlash = (u: string) => u.replace(/\/+$/, "");
+
+/**
+ * desktop-inference adopts a foreign applied entry that already routes inference through the profile's gateway with
+ * some credential: it reports `present` and never writes a boot-slapper entry. desktop-mcp asks the same question so
+ * it can say so instead of waiting for an entry that never comes. With `baseUrl` omitted any gateway entry qualifies.
+ */
+export function adoptedEntry(applied: AppliedEntry | null | "invalid", baseUrl?: string): { name: string; baseUrl: string } | null {
+  if (!applied || applied === "invalid" || applied.ours) return null;
+  const doc = applied.doc;
+  if (cfgGet(doc, ["inference", "provider"], "inferenceProvider") !== "gateway") return null;
+  const base = String(cfgGet(doc, ["inference", "baseUrl"], "inferenceGatewayBaseUrl") ?? "");
+  const cred = cfgGet(doc, ["inference", "credential", "kind"], "inferenceCredentialKind") ?? doc.inferenceGatewayApiKey ?? doc.inferenceCredentialHelper;
+  if (cred === undefined || (baseUrl !== undefined && trimSlash(base) !== trimSlash(baseUrl))) return null;
+  return { name: applied.name, baseUrl: base };
+}
+
 export const newEntryId = () => randomUUID().toLowerCase();
 
 export async function writeLibraryEntry(io: Io, os: Os, home: string, id: string, doc: Record<string, unknown>): Promise<void> {

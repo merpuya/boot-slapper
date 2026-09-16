@@ -43,7 +43,7 @@ export const aca34: Profile = {
       ],
     },
     "desktop-inference": { baseUrl: "https://api.ai.it.cornell.edu" },
-    "desktop-mcp": { tokens: { MECP_DEVICE_TOKEN: "mecp-device-token" } },
+    "desktop-mcp": { tokens: { MECP_DEVICE_TOKEN: "mecp-device-token" }, baseUrl: "https://api.ai.it.cornell.edu" },   // same gateway as desktop-inference: decides the adopt path
     // Cowork copies of dotclaude skills; mecp-conventions first (spec §4 row 10). Add names from ~/.claude/skills as they prove useful in Cowork.
     "desktop-skills": { skills: ["mecp-conventions"] },
     "open-brain-auth": { server: "openbrain" },

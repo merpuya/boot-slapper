@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import { sha256 } from "../engine/capture.ts";
-import { cfgGet, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, ourEntry, readJson, readSidecar, runningError, writeSidecar, ORG_SENTINEL } from "../engine/desktop.ts";
+import { appliedEntry, cfgGet, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, readJson, readSidecar, runningError, writeSidecar, ORG_SENTINEL } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
 import { walkFiles } from "../engine/walk.ts";
 
@@ -31,8 +31,9 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const data = desktopDataDir(io, env.os, env.home);
   const install = await desktopInstall(io, env.os, env.home);
   const account = decodeAntDid(await io.readFile(pj(env.os, data, "ant-did")));
-  const entry = install.installed ? await ourEntry(io, env.os, env.home) : null;
-  const org = String((entry && entry !== "invalid" && cfgGet(entry.doc, ["telemetry", "orgUuid"], "deploymentOrganizationUuid")) || ORG_SENTINEL);
+  // Cowork keys the plugin by the org of the configuration Desktop *applies* — foreign or ours — not by ours in particular.
+  const applied = install.installed ? await appliedEntry(io, env.os, env.home) : null;
+  const org = String((applied && applied !== "invalid" && cfgGet(applied.doc, ["telemetry", "orgUuid"], "deploymentOrganizationUuid")) || ORG_SENTINEL);
   const plugin = skillsPluginDir(data, env.os, org, account ?? "");
   const manifestPath = pj(env.os, plugin, "manifest.json");
   const ran3p = account !== null && (await io.isDir(pj(env.os, plugin, "skills")));
