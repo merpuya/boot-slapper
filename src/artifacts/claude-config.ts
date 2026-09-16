@@ -36,7 +36,7 @@ async function readJsonOrNull(io: Io, p: string): Promise<Record<string, unknown
 }
 
 interface Facts {
-  exists: boolean; checkout: boolean; modified: string[]; deleted: string[]; behind: boolean;
+  exists: boolean; checkout: boolean; modified: string[]; deleted: string[]; untracked: string[]; behind: boolean;
   settings: Record<string, unknown> | null | "invalid"; templateAdded: string[]; templateStale: string[]; hooksDiffer: boolean;
 }
 
@@ -51,7 +51,7 @@ async function renderedHooks(ctx: Ctx): Promise<HooksBlock | null> {
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx;
   const dir = env.claudeDir;
-  const f: Facts = { exists: await io.isDir(dir), checkout: false, modified: [], deleted: [], behind: false, settings: null, templateAdded: [], templateStale: [], hooksDiffer: false };
+  const f: Facts = { exists: await io.isDir(dir), checkout: false, modified: [], deleted: [], untracked: [], behind: false, settings: null, templateAdded: [], templateStale: [], hooksDiffer: false };
   if (f.exists) {
     f.checkout = await isCheckout(io, dir);
     if (f.checkout) {
@@ -59,8 +59,11 @@ async function facts(ctx: Ctx): Promise<Facts> {
       for (const line of st.stdout.split(/\r?\n/)) {
         if (!line) continue;
         const code = line.slice(0, 2);
-        if (code === "??" || code === "!!") continue;               // untracked / ignored: not tracked drift
         const file = line.slice(3).split(" -> ").pop()!;             // renames: report the new name
+        // Untracked paths are not drift the pull step can act on, but verify's "clean vs origin" counts them like
+        // bootstrap.sh --doctor does: a fresh clone would lose them (e.g. handoff notes not yet committed). Ignored (!!) never show.
+        if (code === "??") { f.untracked.push(file); continue; }
+        if (code === "!!") continue;
         if (code.includes("D")) f.deleted.push(file); else if (code.trim()) f.modified.push(file);
       }
       const head = (await git(io, dir, ["rev-parse", "HEAD"])).stdout.trim();
@@ -172,7 +175,7 @@ export const claudeConfig: Artifact = {
     const out: Check[] = [];
     if (!f.exists || !f.checkout) { out.push({ id: "checkout", status: "error", message: "~/.claude is not a git checkout" }); return out; }
     out.push({ id: "checkout", status: "ok", message: "~/.claude is a git checkout" });
-    const n = f.modified.length + f.deleted.length;
+    const n = f.modified.length + f.deleted.length + f.untracked.length;
     out.push(n === 0 ? { id: "clean", status: "ok", message: "~/.claude clean vs origin" } : { id: "clean", status: "warn", message: `~/.claude has ${n} changed path(s) — git -C ~/.claude status` });
     if (f.settings === null || f.settings === "invalid") { out.push({ id: "settings-valid", status: "error", message: "settings.json missing or invalid" }); return out; }
     out.push({ id: "settings-valid", status: "ok", message: "settings.json is valid JSON" });

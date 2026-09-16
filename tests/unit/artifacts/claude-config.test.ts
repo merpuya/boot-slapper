@@ -113,6 +113,20 @@ describe("claude-config", () => {
     expect(details.join("\n")).not.toContain("scratch.txt");
   });
 
+  // Gate-1 parity, 2026-09-16 on JCB-AL-ACA34: bootstrap.sh --doctor counts every porcelain line, so four never-committed
+  // handoff notes (tracked by fleet convention since dotclaude c600e40) made it warn while bs said clean. "Clean vs origin"
+  // means the working tree, untracked included — a fresh clone would lose those files. Detect's drift stays tracked-only
+  // because the pull step can do nothing about an untracked path.
+  it("verify's clean check counts untracked paths like the bash doctor; detect still plans nothing for them", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": JSON.stringify(JSON.parse(template)) } });
+    gitFake(io, { checkout: true, porcelain: "?? .remember/handoffs/a.md\n?? .remember/handoffs/b.md\n" });
+    const clean = (await claudeConfig.verify(ctx)).find((c) => c.id === "clean");
+    expect(clean).toEqual({ id: "clean", status: "warn", message: "~/.claude has 2 changed path(s) — git -C ~/.claude status" });
+    const s = await claudeConfig.detect(ctx);
+    expect(JSON.stringify(s)).not.toContain("handoffs");
+    expect(claudeConfig.plan(ctx, s).map((x) => x.id)).not.toContain("claude-config.pull");
+  });
+
   it("treats non-object JSON in settings.json as invalid instead of crashing", async () => {
     const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: { ...tracked(), "/h/.claude/settings.json": "[1]" } });
     gitFake(io, { checkout: true });
