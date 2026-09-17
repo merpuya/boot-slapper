@@ -11,10 +11,10 @@ const PLIST = (keys: Record<string, unknown>) => JSON.stringify(keys);
 const INFO = `<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string><key>CFBundleIdentifier</key><string>com.anthropic.claudefordesktop</string></dict></plist>`;
 
 describe("engine/desktop paths", () => {
-  it("resolves the Claude-3p data dir per OS (APPDATA — roaming — on win32)", () => {
+  it("resolves the Claude-3p data dir per OS (LOCALAPPDATA wins on win32)", () => {
     expect(desktopDataDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32", env: { APPDATA: "C:\\Users\\t\\AppData\\Roaming" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Roaming\\Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Roaming\\Claude-3p");
+    expect(desktopDataDir(new FakeIo({ platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\t\\AppData\\Local" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
+    expect(desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
     expect(desktopDataDir(new FakeIo(), "linux", "/h")).toBe("/h/.config/Claude-3p");
     expect(configLibraryDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p/configLibrary");
   });

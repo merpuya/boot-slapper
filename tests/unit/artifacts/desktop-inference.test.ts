@@ -138,9 +138,9 @@ describe("desktop-inference (darwin)", () => {
 });
 
 describe("desktop-inference (win32)", () => {
-  it("MSIX install, .ps1 helper, roaming-AppData library, reg-query managed probe", async () => {
-    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const rad = `${home}\\AppData\\Roaming`;
-    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad, APPDATA: rad } });
+  it("MSIX install, .ps1 helper, LOCALAPPDATA library, reg-query managed probe", async () => {
+    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`;
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad } });
     io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
     io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
     // makeCtx probes the env — and so the install — before these handlers exist; win32 discovery is an exec now.
@@ -159,8 +159,8 @@ describe("desktop-inference (win32)", () => {
     // USERNAME is "t", so defaultAccount(io) === "t" — the helper resolves the account statically
     // to 't' rather than reading $env:USERNAME at runtime.
     expect(io.files.get(helper)).toContain("$c = $v.Retrieve('cornell-ai-gateway', 't')");
-    const meta = JSON.parse(io.files.get(`${rad}\\Claude-3p\\configLibrary\\_meta.json`)!);
-    const doc = JSON.parse(io.files.get(`${rad}\\Claude-3p\\configLibrary\\${meta.appliedId}.json`)!);
+    const meta = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\_meta.json`)!);
+    const doc = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\${meta.appliedId}.json`)!);
     expect(doc.inference.credential.command).toBe(helper);
     expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
   });

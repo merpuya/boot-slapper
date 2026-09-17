@@ -21,7 +21,6 @@ const ENTRY_ID = /^[a-f0-9-]{36}$/;
 const MANAGED_PLIST = "com.anthropic.claudefordesktop.plist";
 
 const localAppData = (io: Io, home: string) => io.env.LOCALAPPDATA ?? pj("win32", home, "AppData", "Local");
-const roamingAppData = (io: Io, home: string) => io.env.APPDATA ?? pj("win32", home, "AppData", "Roaming");
 
 /**
  * `desktopInstall` and `managedSources` probe state that cannot change inside one `bs` run, but each is
@@ -48,15 +47,16 @@ function memo<T>(cache: WeakMap<Io, Map<string, Promise<T>>>, io: Io, key: strin
 export function resetDesktopProbeCache(io: Io): void { installCache.delete(io); sourcesCache.delete(io); }
 
 /**
- * Electron's `userData`, which on Windows is roaming AppData — the analogue of macOS `Application Support`,
- * not `Local`. Verified on YOGANOVO: the running app writes `%APPDATA%\Claude\*.json` live, while
- * `%LOCALAPPDATA%\Claude` holds only `Logs` (the `~/Library/Logs/Claude-3p` analogue). The MSIX package
- * container carries a stale `LocalCache\Roaming\Claude-3p` copy from an old migration, but AppData
- * redirection is not active for this package — the app neither writes nor reads there.
+ * win32 is `%LOCALAPPDATA%\Claude-3p`, not roaming AppData: on JCB-LL-ACA34, where 3P was actually running,
+ * that store was the live one (current `main.log`, config rewritten by the app seconds after the installer
+ * touched a dormant store) — see decision-log `2026-09-15-claude-desktop-write-all-three-config-stores`.
+ * Do not re-derive this from Electron's `userData` convention: a box where 3P has never run shows a
+ * first-party layout (live `%APPDATA%\Claude`, logs under `%LOCALAPPDATA%\Claude`) that looks like it
+ * argues for roaming and does not. The stores are separate categories, and only a live 3P box can say.
  */
 export function desktopDataDir(io: Io, os: Os, home: string): string {
   if (os === "darwin") return pj(os, home, "Library", "Application Support", "Claude-3p");
-  if (os === "win32") return pj(os, roamingAppData(io, home), "Claude-3p");
+  if (os === "win32") return pj(os, localAppData(io, home), "Claude-3p");
   return pj(os, home, ".config", "Claude-3p");
 }
 export const configLibraryDir = (io: Io, os: Os, home: string) => pj(os, desktopDataDir(io, os, home), "configLibrary");

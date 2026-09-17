@@ -130,9 +130,9 @@ describe("desktop-mcp", () => {
   });
 
   it("win32: .ps1 helper path lands in the entry with backslashes", async () => {
-    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const rad = `${home}\\AppData\\Roaming`; const lib = `${rad}\\Claude-3p\\configLibrary`;
+    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const lib = `${lad}\\Claude-3p\\configLibrary`;
     const inf = `${home}\\.config\\boot-slapper\\desktop-inference-credential.ps1`;
-    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad, APPDATA: rad }, files: {
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad }, files: {
       [`${home}\\.claude\\mcp\\gateway.json`]: JSON.stringify(bundle), [`${lib}\\_meta.json`]: JSON.stringify({ appliedId: ID, entries: [{ id: ID, name: ENTRY_NAME }] }),
       [`${lib}\\${ID}.json`]: JSON.stringify(wantedDoc({ baseUrl: "https://gw" }, inf)), [`${home}\\.config\\boot-slapper\\desktop.json`]: JSON.stringify({ entryId: ID }),
     } });
