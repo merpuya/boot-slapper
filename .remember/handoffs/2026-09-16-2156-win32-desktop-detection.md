@@ -1,5 +1,15 @@
 # Handoff: Windows desktop detection fixed on YOGANOVO; 3P-mode proof still owed
 
+> **Correction, same session, 22:05 — half of this note was wrong and is reverted in `0805944`.**
+> The config-library path claim below (roaming `%APPDATA%\Claude-3p`) does not hold. A `/save`
+> pass surfaced decision-log `2026-09-15-claude-desktop-write-all-three-config-stores`: on
+> JCB-LL-ACA34, where 3P was *actually running*, the live store was `%LOCALAPPDATA%\Claude-3p`,
+> and assuming otherwise caused two failed tdx-mcp pilot installs. YOGANOVO has never run 3P, so
+> the layout it shows is the first-party one and cannot adjudicate this. `%LOCALAPPDATA%` stands.
+> **The MSIX family-discovery fix is unaffected and still correct** — that same decision
+> independently says the family must be resolved via `Get-AppxPackage`, never hardcoded.
+> Read the "What shipped" section below with that reversal applied.
+
 **Session date:** 2026-09-16
 **Author:** merpuya via Claude
 **Scope:** A `/resume` on a Windows box — not the Mac the previous handoff assumed. Establish which box this is, find out why the desktop artifacts are inert on it, fix what that exposed, and hand back the steps that need the owner's hands. Session on **YOGANOVO** (`device:yoga-snapdragon`, Lenovo Yoga Slim 7x Gen 9, Snapdragon X Elite, arm64), Claude Desktop 2.110.0.0.
