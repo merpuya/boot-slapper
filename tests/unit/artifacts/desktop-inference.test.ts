@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { D, desktopInference, wantedDoc } from "../../../src/artifacts/desktop-inference.ts";
-import { ENTRY_NAME } from "../../../src/engine/desktop.ts";
+import { ENTRY_NAME, resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
 import type { FakeIo } from "../../../src/engine/io.ts";
 import { makeCtx } from "../helpers.ts";
 
@@ -138,11 +138,13 @@ describe("desktop-inference (darwin)", () => {
 });
 
 describe("desktop-inference (win32)", () => {
-  it("MSIX install, .ps1 helper, LOCALAPPDATA library, reg-query managed probe", async () => {
-    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`;
-    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad }, dirs: [`${lad}\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`] });
-    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "1.49585.0\r\n", stderr: "" }));
+  it("MSIX install, .ps1 helper, roaming-AppData library, reg-query managed probe", async () => {
+    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const rad = `${home}\\AppData\\Roaming`;
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad, APPDATA: rad } });
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
     io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
+    // makeCtx probes the env — and so the install — before these handlers exist; win32 discovery is an exec now.
+    resetDesktopProbeCache(io);
     // reg semantics per engine/desktop.ts's fail-closed managedSources (Task 1, commit 6feb1ca): a query
     // failure only reads as "hive genuinely absent" with this exact Windows error text (see
     // tests/unit/engine/desktop.test.ts); any other non-zero exit is treated as unreadable and blocks.
@@ -157,8 +159,8 @@ describe("desktop-inference (win32)", () => {
     // USERNAME is "t", so defaultAccount(io) === "t" — the helper resolves the account statically
     // to 't' rather than reading $env:USERNAME at runtime.
     expect(io.files.get(helper)).toContain("$c = $v.Retrieve('cornell-ai-gateway', 't')");
-    const meta = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\_meta.json`)!);
-    const doc = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\${meta.appliedId}.json`)!);
+    const meta = JSON.parse(io.files.get(`${rad}\\Claude-3p\\configLibrary\\_meta.json`)!);
+    const doc = JSON.parse(io.files.get(`${rad}\\Claude-3p\\configLibrary\\${meta.appliedId}.json`)!);
     expect(doc.inference.credential.command).toBe(helper);
     expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
   });

@@ -8,13 +8,20 @@ export const MIN_DESKTOP_VERSION = "1.19367.0";     // managed http/sse/stdio MC
 export const ENTRY_NAME = "boot-slapper";
 /** Shared "Desktop is running" refusal for artifacts that must not touch the config library while it might be read (Task 4 reuses this for desktop-mcp). */
 export const runningError = (artifactId: string) => `Claude Desktop is running — quit it (⌘Q / File → Exit) and re-run bs onboard --only ${artifactId}`;
-export const MSIX_FAMILY = "AnthropicPBC.Claude_fnn82j28hfe8t";
+/**
+ * The MSIX package family (`<Name>_<13-char publisher id>`) is discovered, not assumed: the shipping build
+ * is named `Claude` (observed `Claude_pzs8sxrjxfjjc`, arm64 2.110.0.0 on YOGANOVO) while earlier packaging
+ * used `AnthropicPBC.Claude`. Matching a hard-coded family reported "not installed" on a box that had it.
+ */
+const MSIX_FAMILY_RE = /^(?:AnthropicPBC\.)?Claude_[a-z0-9]{13}$/;
+const MSIX_PROBE = "Get-AppxPackage -Name *Claude | Where-Object { $_.Name -eq 'Claude' -or $_.Name -eq 'AnthropicPBC.Claude' } | Select-Object -First 1 | ForEach-Object { $_.PackageFamilyName + [char]9 + $_.Version }";
 /** A managed source that sets only these keeps the local config library in force (docs: mdm, "Update keys and managed precedence"). */
 export const APP_BEHAVIOR_KEYS: ReadonlySet<string> = new Set(["disableAutoUpdates", "autoUpdaterEnforcementHours", "updateViaUpdatesHost", "relaunchEnforcementHours", "configRecheckIntervalMinutes", "egressProxyUrl", "egressProxyPacUrl"]);
 const ENTRY_ID = /^[a-f0-9-]{36}$/;
 const MANAGED_PLIST = "com.anthropic.claudefordesktop.plist";
 
 const localAppData = (io: Io, home: string) => io.env.LOCALAPPDATA ?? pj("win32", home, "AppData", "Local");
+const roamingAppData = (io: Io, home: string) => io.env.APPDATA ?? pj("win32", home, "AppData", "Roaming");
 
 /**
  * `desktopInstall` and `managedSources` probe state that cannot change inside one `bs` run, but each is
@@ -40,9 +47,16 @@ function memo<T>(cache: WeakMap<Io, Map<string, Promise<T>>>, io: Io, key: strin
 /** Drop the memoized probes for one `Io`. For tests that mutate a fixture between two probes of the same fake. */
 export function resetDesktopProbeCache(io: Io): void { installCache.delete(io); sourcesCache.delete(io); }
 
+/**
+ * Electron's `userData`, which on Windows is roaming AppData — the analogue of macOS `Application Support`,
+ * not `Local`. Verified on YOGANOVO: the running app writes `%APPDATA%\Claude\*.json` live, while
+ * `%LOCALAPPDATA%\Claude` holds only `Logs` (the `~/Library/Logs/Claude-3p` analogue). The MSIX package
+ * container carries a stale `LocalCache\Roaming\Claude-3p` copy from an old migration, but AppData
+ * redirection is not active for this package — the app neither writes nor reads there.
+ */
 export function desktopDataDir(io: Io, os: Os, home: string): string {
   if (os === "darwin") return pj(os, home, "Library", "Application Support", "Claude-3p");
-  if (os === "win32") return pj(os, localAppData(io, home), "Claude-3p");
+  if (os === "win32") return pj(os, roamingAppData(io, home), "Claude-3p");
   return pj(os, home, ".config", "Claude-3p");
 }
 export const configLibraryDir = (io: Io, os: Os, home: string) => pj(os, desktopDataDir(io, os, home), "configLibrary");
@@ -64,11 +78,10 @@ async function probeDesktopInstall(io: Io, os: Os, home: string): Promise<Deskto
     return { installed: true, path: app, version: m ? m[1].trim() : null };
   }
   if (os === "win32") {
-    const pkg = pj(os, localAppData(io, home), "Packages", MSIX_FAMILY);
-    if (await io.exists(pkg)) {
-      const r = await io.exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", "(Get-AppxPackage -Name AnthropicPBC.Claude | Select-Object -First 1).Version"], { timeout: 20_000 });
-      const v = r.code === 0 ? r.stdout.trim() : "";
-      return { installed: true, path: pkg, version: /^\d+(\.\d+)+$/.test(v) ? v : null };
+    const r = await io.exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", MSIX_PROBE], { timeout: 20_000 });
+    const [fam = "", v = ""] = r.code === 0 ? r.stdout.trim().split("\t") : [];
+    if (MSIX_FAMILY_RE.test(fam)) {
+      return { installed: true, path: pj(os, localAppData(io, home), "Packages", fam), version: /^\d+(\.\d+)+$/.test(v) ? v : null };
     }
     const legacy = pj(os, localAppData(io, home), "AnthropicClaude", "claude.exe");   // pre-MSIX .exe installer (no Cowork)
     return { installed: await io.exists(legacy), path: legacy, version: null };

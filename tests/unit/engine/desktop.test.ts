@@ -11,10 +11,10 @@ const PLIST = (keys: Record<string, unknown>) => JSON.stringify(keys);
 const INFO = `<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string><key>CFBundleIdentifier</key><string>com.anthropic.claudefordesktop</string></dict></plist>`;
 
 describe("engine/desktop paths", () => {
-  it("resolves the Claude-3p data dir per OS (LOCALAPPDATA wins on win32)", () => {
+  it("resolves the Claude-3p data dir per OS (APPDATA — roaming — on win32)", () => {
     expect(desktopDataDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\t\\AppData\\Local" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
+    expect(desktopDataDir(new FakeIo({ platform: "win32", env: { APPDATA: "C:\\Users\\t\\AppData\\Roaming" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Roaming\\Claude-3p");
+    expect(desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Roaming\\Claude-3p");
     expect(desktopDataDir(new FakeIo(), "linux", "/h")).toBe("/h/.config/Claude-3p");
     expect(configLibraryDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p/configLibrary");
   });
@@ -27,14 +27,31 @@ describe("desktopInstall", () => {
     expect(io.calls).toEqual([]);
     expect(await desktopInstall(new FakeIo(), "darwin", "/h")).toEqual({ installed: false, path: "/Applications/Claude.app", version: null });
   });
-  it("win32: the MSIX package dir counts as installed; version via Get-AppxPackage; legacy exe still recognised", async () => {
+  it("win32: Get-AppxPackage names the family and version; legacy exe still recognised", async () => {
     const home = "C:\\Users\\t";
-    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` }, dirs: [`${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`] });
-    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "1.49585.0\r\n", stderr: "" }));
-    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`, version: "1.49585.0" });
+    // The shipping arm64 build is `Claude_pzs8sxrjxfjjc` (observed on YOGANOVO, Desktop 2.110.0.0) — the
+    // publisher hash and the bare `Claude` name are both unlike the plan's `AnthropicPBC.Claude_fnn82j28hfe8t`.
+    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
+    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: "2.110.0.0" });
+
+    const older = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
+    older.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "AnthropicPBC.Claude_fnn82j28hfe8t\t1.49585.0\r\n", stderr: "" }));
+    expect(await desktopInstall(older, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`, version: "1.49585.0" });
+
     const legacy = new FakeIo({ platform: "win32", home, files: { [`${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`]: "" } });
     legacy.on((c) => c === "powershell", () => ({ code: 1, stdout: "", stderr: "" }));
     expect(await desktopInstall(legacy, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null });
+  });
+  it("win32: a package with no parsable version is still installed; junk on stdout is not a family", async () => {
+    const home = "C:\\Users\\t";
+    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t\r\n", stderr: "" }));
+    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: null });
+
+    const junk = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
+    junk.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Get-AppxPackage : Access denied\r\n", stderr: "" }));
+    expect(await desktopInstall(junk, "win32", home)).toEqual({ installed: false, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null });
   });
   it("versionAtLeast compares dotted numbers", () => {
     expect(versionAtLeast("1.49585.0", "1.19367.0")).toBe(true);

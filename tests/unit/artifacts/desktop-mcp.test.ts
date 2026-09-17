@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { desktopMcp, wantedServers } from "../../../src/artifacts/desktop-mcp.ts";
 import { desktopInference, wantedDoc } from "../../../src/artifacts/desktop-inference.ts";
 import { withOpts } from "../../../src/engine/artifact.ts";
-import { ENTRY_NAME } from "../../../src/engine/desktop.ts";
+import { ENTRY_NAME, resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
 import type { FakeIo } from "../../../src/engine/io.ts";
 import { makeCtx } from "../helpers.ts";
 
@@ -130,15 +130,17 @@ describe("desktop-mcp", () => {
   });
 
   it("win32: .ps1 helper path lands in the entry with backslashes", async () => {
-    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const lib = `${lad}\\Claude-3p\\configLibrary`;
+    const home = "C:\\Users\\t"; const lad = `${home}\\AppData\\Local`; const rad = `${home}\\AppData\\Roaming`; const lib = `${rad}\\Claude-3p\\configLibrary`;
     const inf = `${home}\\.config\\boot-slapper\\desktop-inference-credential.ps1`;
-    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad }, dirs: [`${lad}\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`], files: {
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t", LOCALAPPDATA: lad, APPDATA: rad }, files: {
       [`${home}\\.claude\\mcp\\gateway.json`]: JSON.stringify(bundle), [`${lib}\\_meta.json`]: JSON.stringify({ appliedId: ID, entries: [{ id: ID, name: ENTRY_NAME }] }),
       [`${lib}\\${ID}.json`]: JSON.stringify(wantedDoc({ baseUrl: "https://gw" }, inf)), [`${home}\\.config\\boot-slapper\\desktop.json`]: JSON.stringify({ entryId: ID }),
     } });
-    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "1.49585.0\r\n", stderr: "" }));
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
     io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
     io.on((c) => c === "reg", () => ({ code: 1, stdout: "", stderr: "ERROR: The system was unable to find the specified registry key or value." }));
+    // makeCtx probes the env — and so the install — before these handlers exist; win32 discovery is an exec now.
+    resetDesktopProbeCache(io);
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, await desktopMcp.detect(ctx)));
     const doc = JSON.parse(io.files.get(`${lib}\\${ID}.json`)!);
     expect(doc.mcp.managedServers[1].headersHelper).toBe(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`);
