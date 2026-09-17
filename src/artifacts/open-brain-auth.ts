@@ -19,7 +19,7 @@ async function codeGrant(ctx: Ctx, server: string): Promise<boolean> {
 }
 /** Desktop (3P) keeps its MCP OAuth state in its electron-store, key `custom3pMcpOAuth`, one safeStorage-encrypted blob per server name. */
 async function desktopGrant(ctx: Ctx, server: string): Promise<boolean> {
-  const raw = await ctx.io.readFile(pj(ctx.env.os, desktopDataDir(ctx.io, ctx.env.os, ctx.env.home), "config.json"));
+  const raw = await ctx.io.readFile(pj(ctx.env.os, await desktopDataDir(ctx.io, ctx.env.os, ctx.env.home), "config.json"));
   if (raw === null) return false;
   try { const j = JSON.parse(raw) as { custom3pMcpOAuth?: Record<string, unknown> }; return typeof j.custom3pMcpOAuth?.[server] === "string" || typeof j.custom3pMcpOAuth?.[server] === "object"; } catch { return false; }
 }

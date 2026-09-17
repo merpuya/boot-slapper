@@ -28,7 +28,7 @@ interface Facts { installed: boolean; running: boolean; ran3p: boolean; plugin: 
 
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx; const o = ctx.opts as unknown as Opts;
-  const data = desktopDataDir(io, env.os, env.home);
+  const data = await desktopDataDir(io, env.os, env.home);
   const install = await desktopInstall(io, env.os, env.home);
   const account = decodeAntDid(await io.readFile(pj(env.os, data, "ant-did")));
   // Cowork keys the plugin by the org of the configuration Desktop *applies* — foreign or ours — not by ours in particular.

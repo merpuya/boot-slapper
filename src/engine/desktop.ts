@@ -21,6 +21,7 @@ const ENTRY_ID = /^[a-f0-9-]{36}$/;
 const MANAGED_PLIST = "com.anthropic.claudefordesktop.plist";
 
 const localAppData = (io: Io, home: string) => io.env.LOCALAPPDATA ?? pj("win32", home, "AppData", "Local");
+const roamingAppData = (io: Io, home: string) => io.env.APPDATA ?? pj("win32", home, "AppData", "Roaming");
 
 /**
  * `desktopInstall` and `managedSources` probe state that cannot change inside one `bs` run, but each is
@@ -32,6 +33,7 @@ const localAppData = (io: Io, home: string) => io.env.LOCALAPPDATA ?? pj("win32"
  */
 const installCache = new WeakMap<Io, Map<string, Promise<DesktopInstall>>>();
 const sourcesCache = new WeakMap<Io, Map<string, Promise<ManagedSource[]>>>();
+const storeCache = new WeakMap<Io, Map<string, Promise<DesktopStore>>>();
 
 function memo<T>(cache: WeakMap<Io, Map<string, Promise<T>>>, io: Io, key: string, probe: () => Promise<T>): Promise<T> {
   let per = cache.get(io);
@@ -44,26 +46,50 @@ function memo<T>(cache: WeakMap<Io, Map<string, Promise<T>>>, io: Io, key: strin
 }
 
 /** Drop the memoized probes for one `Io`. For tests that mutate a fixture between two probes of the same fake. */
-export function resetDesktopProbeCache(io: Io): void { installCache.delete(io); sourcesCache.delete(io); }
+export function resetDesktopProbeCache(io: Io): void { installCache.delete(io); sourcesCache.delete(io); storeCache.delete(io); }
+
+export interface DesktopStore { dir: string; live: boolean; reason: string }
 
 /**
- * win32 is `%LOCALAPPDATA%\Claude-3p`, not roaming AppData: on JCB-LL-ACA34, where 3P was actually running,
- * that store was the live one (current `main.log`, config rewritten by the app seconds after the installer
- * touched a dormant store) — see decision-log `2026-09-15-claude-desktop-write-all-three-config-stores`.
- * Do not re-derive this from Electron's `userData` convention: a box where 3P has never run shows a
- * first-party layout (live `%APPDATA%\Claude`, logs under `%LOCALAPPDATA%\Claude`) that looks like it
- * argues for roaming and does not. The stores are separate categories, and only a live 3P box can say.
+ * Windows can carry more than one store Claude Desktop might read, and the categories are not mutually
+ * exclusive — that is the trap (decision-log `2026-09-15-claude-desktop-write-all-three-config-stores`;
+ * detecting the packaged app and writing only its store caused two failed tdx-mcp pilot installs). So pick
+ * the store showing signs of a third-party session rather than returning a constant, and say which.
+ *
+ * `%LOCALAPPDATA%\Claude-3p` leads because JCB-LL-ACA34 confirmed it live with 3P actually running. Do not
+ * re-derive the order from Electron's `userData` convention: a box where 3P has never run shows a
+ * first-party layout that looks like it argues for roaming and does not.
+ *
+ * A configLibrary outranks a log because it is the thing these artifacts read and write; a log only says
+ * the app ran. When nothing qualifies, `live: false` names the default rather than implying a finding —
+ * on a box where 3P has never run there is no live store to find, and that is a real, reportable state.
  */
-export function desktopDataDir(io: Io, os: Os, home: string): string {
-  if (os === "darwin") return pj(os, home, "Library", "Application Support", "Claude-3p");
-  if (os === "win32") return pj(os, localAppData(io, home), "Claude-3p");
-  return pj(os, home, ".config", "Claude-3p");
+export async function resolveDesktopStore(io: Io, os: Os, home: string): Promise<DesktopStore> {
+  if (os !== "win32") return { dir: fixedDataDir(os, home), live: true, reason: "the only location on this OS" };
+  return memo(storeCache, io, home, async () => {
+    const fam = (await desktopInstall(io, os, home)).family;
+    const candidates = [
+      pj(os, localAppData(io, home), "Claude-3p"),
+      pj(os, roamingAppData(io, home), "Claude-3p"),
+      ...(fam ? [pj(os, localAppData(io, home), "Packages", fam, "LocalCache", "Roaming", "Claude-3p")] : []),
+    ];
+    for (const [rel, reason] of [[["configLibrary", "_meta.json"], "has configLibrary\\_meta.json"], [["logs", "main.log"], "has logs\\main.log"]] as const) {
+      for (const dir of candidates) if (await io.exists(pj(os, dir, ...rel))) return { dir, live: true, reason };
+    }
+    return { dir: candidates[0], live: false, reason: "no third-party session yet" };
+  });
 }
-export const configLibraryDir = (io: Io, os: Os, home: string) => pj(os, desktopDataDir(io, os, home), "configLibrary");
+
+const fixedDataDir = (os: Os, home: string) =>
+  os === "darwin" ? pj(os, home, "Library", "Application Support", "Claude-3p") : pj(os, home, ".config", "Claude-3p");
+
+export const desktopDataDir = async (io: Io, os: Os, home: string): Promise<string> => (await resolveDesktopStore(io, os, home)).dir;
+export const configLibraryDir = async (io: Io, os: Os, home: string) => pj(os, await desktopDataDir(io, os, home), "configLibrary");
 export const bsDir = (os: Os, home: string) => pj(os, home, ".config", "boot-slapper");
 export const sidecarPath = (os: Os, home: string) => pj(os, bsDir(os, home), "desktop.json");
 
-export interface DesktopInstall { installed: boolean; path: string; version: string | null }
+/** `family` is the win32 MSIX package family when one is installed — it names the package's private store. */
+export interface DesktopInstall { installed: boolean; path: string; version: string | null; family: string | null }
 
 export function desktopInstall(io: Io, os: Os, home: string): Promise<DesktopInstall> {
   return memo(installCache, io, `${os}\0${home}`, () => probeDesktopInstall(io, os, home));
@@ -72,22 +98,22 @@ export function desktopInstall(io: Io, os: Os, home: string): Promise<DesktopIns
 async function probeDesktopInstall(io: Io, os: Os, home: string): Promise<DesktopInstall> {
   if (os === "darwin") {
     const app = "/Applications/Claude.app";
-    if (!(await io.exists(app))) return { installed: false, path: app, version: null };
+    if (!(await io.exists(app))) return { installed: false, path: app, version: null, family: null };
     const plist = (await io.readFile(pj(os, app, "Contents", "Info.plist"))) ?? "";
     const m = /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(plist);
-    return { installed: true, path: app, version: m ? m[1].trim() : null };
+    return { installed: true, path: app, version: m ? m[1].trim() : null, family: null };
   }
   if (os === "win32") {
     const r = await io.exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", MSIX_PROBE], { timeout: 20_000 });
     const [fam = "", v = ""] = r.code === 0 ? r.stdout.trim().split("\t") : [];
     if (MSIX_FAMILY_RE.test(fam)) {
-      return { installed: true, path: pj(os, localAppData(io, home), "Packages", fam), version: /^\d+(\.\d+)+$/.test(v) ? v : null };
+      return { installed: true, path: pj(os, localAppData(io, home), "Packages", fam), version: /^\d+(\.\d+)+$/.test(v) ? v : null, family: fam };
     }
     const legacy = pj(os, localAppData(io, home), "AnthropicClaude", "claude.exe");   // pre-MSIX .exe installer (no Cowork)
-    return { installed: await io.exists(legacy), path: legacy, version: null };
+    return { installed: await io.exists(legacy), path: legacy, version: null, family: null };
   }
   const p = pj(os, home, ".local", "share", "claude-desktop");
-  return { installed: await io.exists(p), path: p, version: null };
+  return { installed: await io.exists(p), path: p, version: null, family: null };
 }
 
 export function versionAtLeast(v: string | null, min: string): boolean {
@@ -173,8 +199,8 @@ export async function desktopRunning(io: Io, os: Os): Promise<boolean> {
 }
 
 export interface LibraryMeta { appliedId: string; entries: Array<{ id: string; name: string }> }
-const metaPath = (io: Io, os: Os, home: string) => pj(os, configLibraryDir(io, os, home), "_meta.json");
-const entryPath = (io: Io, os: Os, home: string, id: string) => pj(os, configLibraryDir(io, os, home), `${id}.json`);
+const metaPath = async (io: Io, os: Os, home: string) => pj(os, await configLibraryDir(io, os, home), "_meta.json");
+const entryPath = async (io: Io, os: Os, home: string, id: string) => pj(os, await configLibraryDir(io, os, home), `${id}.json`);
 
 export async function readJson(io: Io, p: string): Promise<Record<string, unknown> | null | "invalid"> {
   const s = await io.readFile(p);
@@ -188,7 +214,7 @@ export async function readJson(io: Io, p: string): Promise<Record<string, unknow
  * `raw` back so those survive; every other reader wants the normalized `meta`.
  */
 export async function readLibraryMetaRaw(io: Io, os: Os, home: string): Promise<{ raw: Record<string, unknown>; meta: LibraryMeta } | null | "invalid"> {
-  const j = await readJson(io, metaPath(io, os, home));
+  const j = await readJson(io, await metaPath(io, os, home));
   if (j === null || j === "invalid") return j;
   const entries = Array.isArray(j.entries) ? (j.entries as Array<{ id?: unknown; name?: unknown }>) : null;
   if (typeof j.appliedId !== "string" || !entries || !entries.every((e) => typeof e?.id === "string" && typeof e?.name === "string")) return "invalid";
@@ -202,7 +228,7 @@ export async function readLibraryMeta(io: Io, os: Os, home: string): Promise<Lib
 
 export async function readLibraryEntry(io: Io, os: Os, home: string, id: string): Promise<Record<string, unknown> | null | "invalid"> {
   if (!ENTRY_ID.test(id)) return "invalid";
-  return readJson(io, entryPath(io, os, home, id));
+  return readJson(io, await entryPath(io, os, home, id));
 }
 
 export interface Sidecar { entryId?: string; servers?: string[]; skills?: Record<string, string> }
@@ -278,8 +304,8 @@ export function adoptedEntry(applied: AppliedEntry | null | "invalid", baseUrl?:
 export const newEntryId = () => randomUUID().toLowerCase();
 
 export async function writeLibraryEntry(io: Io, os: Os, home: string, id: string, doc: Record<string, unknown>): Promise<void> {
-  await io.mkdirp(configLibraryDir(io, os, home), { mode: 0o700 });
-  await io.writeFile(entryPath(io, os, home, id), JSON.stringify(doc, null, 2) + "\n", { mode: 0o600 });
+  await io.mkdirp(await configLibraryDir(io, os, home), { mode: 0o700 });
+  await io.writeFile(await entryPath(io, os, home, id), JSON.stringify(doc, null, 2) + "\n", { mode: 0o600 });
 }
 
 /** Adds our entry and (optionally) applies it, mutating the document *as parsed* so keys this version does not model — top-level and on the entries already there — are written back untouched. */
@@ -291,8 +317,8 @@ export async function upsertMeta(io: Io, os: Os, home: string, entry: { id: stri
   if (!entries.some((e) => e.id === entry.id)) entries.push({ ...entry });
   raw.entries = entries;
   if (apply || !raw.appliedId) raw.appliedId = entry.id;
-  await io.mkdirp(configLibraryDir(io, os, home), { mode: 0o700 });
-  await io.writeFile(metaPath(io, os, home), JSON.stringify(raw, null, 2) + "\n", { mode: 0o600 });
+  await io.mkdirp(await configLibraryDir(io, os, home), { mode: 0o700 });
+  await io.writeFile(await metaPath(io, os, home), JSON.stringify(raw, null, 2) + "\n", { mode: 0o600 });
 }
 
 /** `ant-did` holds the 3P account uuid base64-encoded (docs: data-storage, "Identity"). */

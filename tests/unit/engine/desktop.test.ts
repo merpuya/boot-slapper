@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeIo } from "../../../src/engine/io.ts";
 import {
-  cfgGet, configLibraryDir, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, managedSources, managedTakeover,
+  cfgGet, configLibraryDir, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, managedSources, managedTakeover, resolveDesktopStore,
   ourEntry, readLibraryMeta, readSidecar, resetDesktopProbeCache, upsertMeta, versionAtLeast, writeLibraryEntry, writeSidecar, ENTRY_NAME,
 } from "../../../src/engine/desktop.ts";
 
@@ -11,21 +11,66 @@ const PLIST = (keys: Record<string, unknown>) => JSON.stringify(keys);
 const INFO = `<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string><key>CFBundleIdentifier</key><string>com.anthropic.claudefordesktop</string></dict></plist>`;
 
 describe("engine/desktop paths", () => {
-  it("resolves the Claude-3p data dir per OS (LOCALAPPDATA wins on win32)", () => {
-    expect(desktopDataDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\t\\AppData\\Local" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
-    expect(desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
-    expect(desktopDataDir(new FakeIo(), "linux", "/h")).toBe("/h/.config/Claude-3p");
-    expect(configLibraryDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p/configLibrary");
+  it("resolves the Claude-3p data dir per OS (LOCALAPPDATA is the win32 default)", async () => {
+    expect(await desktopDataDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p");
+    expect(await desktopDataDir(new FakeIo({ platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\t\\AppData\\Local" } }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
+    expect(await desktopDataDir(new FakeIo({ platform: "win32" }), "win32", "C:\\Users\\t")).toBe("C:\\Users\\t\\AppData\\Local\\Claude-3p");
+    expect(await desktopDataDir(new FakeIo(), "linux", "/h")).toBe("/h/.config/Claude-3p");
+    expect(await configLibraryDir(new FakeIo(), "darwin", "/h")).toBe("/h/Library/Application Support/Claude-3p/configLibrary");
+  });
+});
+
+// Windows can carry more than one store Claude Desktop might read, and they are not mutually exclusive
+// (decision-log 2026-09-15-claude-desktop-write-all-three-config-stores — assuming one cost two failed
+// tdx-mcp pilot installs). Pick the one showing signs of life instead of returning a constant.
+describe("resolveDesktopStore (win32)", () => {
+  const home = "C:\\Users\\t";
+  const lad = `${home}\\AppData\\Local`, rad = `${home}\\AppData\\Roaming`;
+  const local3p = `${lad}\\Claude-3p`, roaming3p = `${rad}\\Claude-3p`;
+  const pkg3p = `${lad}\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude-3p`;
+  const win32 = (init: { files?: Record<string, string>; dirs?: string[] } = {}) => {
+    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: lad, APPDATA: rad }, ...init });
+    io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
+    return io;
+  };
+
+  it("a configLibrary outranks a log, and a log outranks mere existence", async () => {
+    const lib = await resolveDesktopStore(win32({ files: { [`${roaming3p}\\configLibrary\\_meta.json`]: "{}", [`${local3p}\\logs\\main.log`]: "x" } }), "win32", home);
+    expect(lib).toEqual({ dir: roaming3p, live: true, reason: "has configLibrary\\_meta.json" });
+
+    const log = await resolveDesktopStore(win32({ files: { [`${pkg3p}\\logs\\main.log`]: "x" }, dirs: [local3p] }), "win32", home);
+    expect(log).toEqual({ dir: pkg3p, live: true, reason: "has logs\\main.log" });
+  });
+
+  it("prefers LOCALAPPDATA when several stores carry the same evidence", async () => {
+    const io = win32({ files: { [`${local3p}\\configLibrary\\_meta.json`]: "{}", [`${roaming3p}\\configLibrary\\_meta.json`]: "{}" } });
+    expect((await resolveDesktopStore(io, "win32", home)).dir).toBe(local3p);
+  });
+
+  it("reports not-live rather than silently defaulting when nothing has run", async () => {
+    // YOGANOVO 2026-09-16: the dirs exist but 3P has never run, so no store can testify.
+    const io = win32({ dirs: [local3p, roaming3p], files: { [`${roaming3p}\\claude_desktop_config.json`]: "{}" } });
+    expect(await resolveDesktopStore(io, "win32", home)).toEqual({ dir: local3p, live: false, reason: "no third-party session yet" });
+    expect(await desktopDataDir(io, "win32", home)).toBe(local3p);
+  });
+
+  it("skips the package store when no MSIX package is installed", async () => {
+    const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: lad, APPDATA: rad }, files: { [`${pkg3p}\\configLibrary\\_meta.json`]: "{}" } });
+    io.on((c) => c === "powershell", () => ({ code: 1, stdout: "", stderr: "" }));
+    expect(await resolveDesktopStore(io, "win32", home)).toEqual({ dir: local3p, live: false, reason: "no third-party session yet" });
+  });
+
+  it("non-win32 has one known location and is always treated as live", async () => {
+    expect(await resolveDesktopStore(new FakeIo(), "darwin", "/h")).toEqual({ dir: "/h/Library/Application Support/Claude-3p", live: true, reason: "the only location on this OS" });
   });
 });
 
 describe("desktopInstall", () => {
   it("darwin: reads the version from Info.plist without exec", async () => {
     const io = new FakeIo({ dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": INFO } });
-    expect(await desktopInstall(io, "darwin", "/h")).toEqual({ installed: true, path: "/Applications/Claude.app", version: "1.49585.0" });
+    expect(await desktopInstall(io, "darwin", "/h")).toEqual({ installed: true, path: "/Applications/Claude.app", version: "1.49585.0", family: null });
     expect(io.calls).toEqual([]);
-    expect(await desktopInstall(new FakeIo(), "darwin", "/h")).toEqual({ installed: false, path: "/Applications/Claude.app", version: null });
+    expect(await desktopInstall(new FakeIo(), "darwin", "/h")).toEqual({ installed: false, path: "/Applications/Claude.app", version: null, family: null });
   });
   it("win32: Get-AppxPackage names the family and version; legacy exe still recognised", async () => {
     const home = "C:\\Users\\t";
@@ -33,25 +78,25 @@ describe("desktopInstall", () => {
     // publisher hash and the bare `Claude` name are both unlike the plan's `AnthropicPBC.Claude_fnn82j28hfe8t`.
     const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
     io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t2.110.0.0\r\n", stderr: "" }));
-    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: "2.110.0.0" });
+    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: "2.110.0.0", family: "Claude_pzs8sxrjxfjjc" });
 
     const older = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
     older.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "AnthropicPBC.Claude_fnn82j28hfe8t\t1.49585.0\r\n", stderr: "" }));
-    expect(await desktopInstall(older, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`, version: "1.49585.0" });
+    expect(await desktopInstall(older, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\AnthropicPBC.Claude_fnn82j28hfe8t`, version: "1.49585.0", family: "AnthropicPBC.Claude_fnn82j28hfe8t" });
 
     const legacy = new FakeIo({ platform: "win32", home, files: { [`${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`]: "" } });
     legacy.on((c) => c === "powershell", () => ({ code: 1, stdout: "", stderr: "" }));
-    expect(await desktopInstall(legacy, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null });
+    expect(await desktopInstall(legacy, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null, family: null });
   });
   it("win32: a package with no parsable version is still installed; junk on stdout is not a family", async () => {
     const home = "C:\\Users\\t";
     const io = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
     io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Claude_pzs8sxrjxfjjc\t\r\n", stderr: "" }));
-    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: null });
+    expect(await desktopInstall(io, "win32", home)).toEqual({ installed: true, path: `${home}\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc`, version: null, family: "Claude_pzs8sxrjxfjjc" });
 
     const junk = new FakeIo({ platform: "win32", home, env: { LOCALAPPDATA: `${home}\\AppData\\Local` } });
     junk.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: "Get-AppxPackage : Access denied\r\n", stderr: "" }));
-    expect(await desktopInstall(junk, "win32", home)).toEqual({ installed: false, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null });
+    expect(await desktopInstall(junk, "win32", home)).toEqual({ installed: false, path: `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`, version: null, family: null });
   });
   it("versionAtLeast compares dotted numbers", () => {
     expect(versionAtLeast("1.49585.0", "1.19367.0")).toBe(true);

@@ -12,7 +12,7 @@ describe("prereqs", () => {
     expect(prereqs.plan(ctx, { kind: "present" })).toEqual([]);
     const checks = await prereqs.verify(ctx);
     expect(checks.every((c) => c.status === "ok")).toBe(true);
-    expect(checks.map((c) => c.id)).toEqual(["git", "curl", "jq", "python", "node", "claude", "desktop", "platform"]);
+    expect(checks.map((c) => c.id)).toEqual(["git", "curl", "jq", "python", "node", "claude", "desktop", "desktop-store", "platform"]);
   });
   it("blocks on a missing hard prerequisite and names it", async () => {
     const { ctx, io } = await makeCtx({ path: { ...allTools, jq: undefined as unknown as string } });

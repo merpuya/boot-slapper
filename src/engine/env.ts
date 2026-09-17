@@ -1,5 +1,5 @@
 import path from "node:path";
-import { desktopInstall } from "./desktop.ts";
+import { desktopInstall, resolveDesktopStore } from "./desktop.ts";
 import type { Io } from "./io.ts";
 
 export type Provider = "subscription" | "gateway" | "api-key" | "bedrock" | "vertex";
@@ -12,6 +12,8 @@ export interface EnvProbe {
   os: Os; home: string; hostname: string; label: string;
   detectedProvider: Provider | null;
   claudeOnPath: boolean; desktopInstalled: boolean; desktopVersion: string | null;
+  /** The Claude-3p store the desktop artifacts will use, and whether anything about it was actually observed. */
+  desktopStore: string; desktopStoreLive: boolean;
 }
 
 export function toOs(platform: NodeJS.Platform): Os {
@@ -63,7 +65,8 @@ export async function probeEnv(io: Io): Promise<EnvProbe> {
   const home = io.home;
   const claudeDir = claudeDirOf(home, os);
   const desktop = await desktopInstall(io, os, home);
-  return { os, home, hostname: io.hostname, label: await resolveLabel(io, claudeDir, os), detectedProvider: await detectProvider(io, home, os), claudeOnPath: (await io.which("claude")) !== null, desktopInstalled: desktop.installed, desktopVersion: desktop.version };
+  const store = await resolveDesktopStore(io, os, home);
+  return { os, home, hostname: io.hostname, label: await resolveLabel(io, claudeDir, os), detectedProvider: await detectProvider(io, home, os), claudeOnPath: (await io.which("claude")) !== null, desktopInstalled: desktop.installed, desktopVersion: desktop.version, desktopStore: store.dir, desktopStoreLive: store.live };
 }
 
 export function resolveEnv(probe: EnvProbe, provider: Provider, surface: Surface): Env {

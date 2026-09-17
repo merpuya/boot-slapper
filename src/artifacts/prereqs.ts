@@ -1,5 +1,5 @@
 import type { Artifact, Bundle, Check, Ctx, State } from "../engine/artifact.ts";
-import { desktopInstall, MIN_DESKTOP_VERSION, versionAtLeast } from "../engine/desktop.ts";
+import { desktopInstall, MIN_DESKTOP_VERSION, resolveDesktopStore, versionAtLeast } from "../engine/desktop.ts";
 import type { Io } from "../engine/io.ts";
 
 export async function nodeVersion(io: Io): Promise<{ major: number; minor: number; raw: string } | null> {
@@ -29,6 +29,12 @@ async function checks(ctx: Ctx): Promise<Check[]> {
   if (!d.installed) out.push({ id: "desktop", status: "warn", message: `Claude Desktop not found at ${d.path} — install from https://claude.com/download (Windows: the .msix package; the .exe installer has no Cowork)` });
   else if (d.version && !versionAtLeast(d.version, MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${MIN_DESKTOP_VERSION} — update it before the desktop artifacts run` });
   else out.push({ id: "desktop", status: "ok", message: d.version ? `Claude Desktop ${d.version} at ${d.path}` : `Claude Desktop at ${d.path} (version unknown)` });
+  if (d.installed) {
+    // Name the store the desktop artifacts will read and write. A wrong pick is otherwise silent — writing a
+    // config library Desktop never reads (decision-log 2026-09-15-claude-desktop-write-all-three-config-stores).
+    const s = await resolveDesktopStore(io, env.os, env.home);
+    out.push({ id: "desktop-store", status: "ok", message: s.live ? `Claude-3p store: ${s.dir} (${s.reason})` : `Claude-3p store: ${s.dir} — ${s.reason}, so this is the default rather than an observed one` });
+  }
   out.push({ id: "platform", status: "ok", message: `platform: ${env.os}` });
   return out;
 }
