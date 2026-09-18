@@ -131,10 +131,10 @@ and carried on. n=1 across ~7 hours and three refreshes, so not chased. Noted be
 recurrence probably shares a cause and a fix.
 
 ## Open items / known follow-ups
-- **Rotate the gateway key** — hygiene, not a diagnostic (see postscript). Two plaintext copies: the
-  config-library entry, and `claude_desktop_config.json`'s `cornell_secure_tools` argv
-  (`--header x-litellm-api-key:Bearer sk-…`), the latter visible to any process listing. Cornell-side
-  action.
+- **Rotate the gateway key — deliberately deferred by the owner 2026-09-18, not forgotten.** Hygiene,
+  not a diagnostic (see postscript): two plaintext copies, the config-library entry and
+  `claude_desktop_config.json`'s `cornell_secure_tools` argv (`--header x-litellm-api-key:Bearer sk-…`),
+  the latter visible to any process listing. Cornell-side action when convenient.
 - **`~/.config/mecp/api_key` on this box appears to hold the MASTER MeCP key, not a device token.**
   Found while looking for an existing token to reuse. It is 39 chars with **no dots — not a JWT**,
   and `mecp/scripts/mint-device-token.ts` mints device tokens as JWTs (`createJwt("device",
@@ -149,6 +149,13 @@ recurrence probably shares a cause and a fix.
   runbook's: `API_KEY=… npx tsx scripts/mint-device-token.ts --device yoga-novo --scope write`,
   install over that file (mode 600), then `bs secrets set mecp-device-token` with the same value.
   Then consider rotating the master (which kills all derived tokens — plan re-minting).
+  **There is no read-only-vs-master tradeoff here, which is the natural objection** (and the work item
+  is even named `mecp-readonly-session-token-and-rotation`): read-only is only the *default*.
+  `--scope write` grants the **full MCP tool surface** — `api/mcp.ts:215` filters tools only when
+  `principal.scope === "read"`, `api/_lib/mcp-auth.ts:53` honors the write claim, and
+  `api/__tests__/mcp-auth-device.test.ts:46` covers it. The sole thing a write device token cannot reach
+  is `/api/api-usage/*`, which stays master/OAuth-only and is not what boot-slapper's `mecp` server
+  talks to. Since the master is already on this box, minting can happen here rather than on an admin box.
   Why it hid for six weeks: the mint script's install path is `~/.config/mecp/api_key` for *both*
   credential kinds, so a master key installed there is indistinguishable from a provisioned device
   except by JWT shape. A shape check at that read site would surface it, and other devices are worth
@@ -188,10 +195,12 @@ recurrence probably shares a cause and a fix.
 **Fetch first.** Gate 2's Windows leg is closed (see postscript), so the next moves are the two
 credential items, in this order:
 
-1. **The suspected master key on this box** — confirm and replace with a properly scoped device token.
-   It is the only item here with a security dimension, and it is six weeks old.
-2. **Rotate the Cornell gateway key**, which also proves the helper (not the leftover static key) is
-   the live path.
+1. **The suspected master key on this box** — confirm and replace with a `--scope write` device token
+   (which is fully write-capable; see the follow-up above). It is the only item here with a security
+   dimension, it is six weeks old, and it is also what unblocks `mecp` on both surfaces. Minting can
+   happen on this box, since the master is already here.
+2. ~~Rotate the Cornell gateway key~~ — **deferred by the owner 2026-09-18.** Still worth doing
+   eventually; nothing depends on it.
 
 Then, on a MeCP-connected box, drain the two staging blocks. They are the only unrecorded output of the
 last three sessions, and one is a correction that invalidates earlier Windows findings — the longer it
