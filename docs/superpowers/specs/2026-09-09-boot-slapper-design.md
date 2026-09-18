@@ -281,11 +281,33 @@ Three gates; the bash keeps working until the port is proven.
 | Gate | Condition | Change |
 |---|---|---|
 | 1 | `bs doctor` and `bootstrap.sh --doctor` agree on the current mac (parity test in CI) | none — both live |
-| 2 | `bs onboard` green on the new mac and the new Windows box; `doctor` green on both; memory-sync round-trip verified from each | `dotclaude/bootstrap.sh` → 15-line shim calling `bs onboard`; `dotfiles/install.sh`/`.ps1` step 3 → the shim; `claude-gw.zsh` removed from dotfiles |
+| 2 | `bs onboard` green on the new mac and on an **unmanaged** Windows box — `yogaNovo`, decided 2026-09-17 (see note); `doctor` green on both; memory-sync round-trip verified from each | `dotclaude/bootstrap.sh` → 15-line shim calling `bs onboard`; `dotfiles/install.sh`/`.ps1` step 3 → the shim; `claude-gw.zsh` removed from dotfiles |
 | 3 | one week of SessionStart/End hooks with no sync drift on the fleet | `claude-memory-sync/install.sh` deprecated in place |
 
 Each gate is one commit per affected repo with a handoff note; a regression reverts
 one commit. `dotclaude-self-update.sh` is untouched.
+
+**Gate 2's Windows box, amended 2026-09-17.** The row originally said "the new Windows box", meaning the
+Cornell pilot box. S3 (`docs/spikes/2026-09-17-s3-windows-managed-policy-owns-desktop.md`) found that a
+Cornell-managed Windows box has `HKLM\SOFTWARE\Policies\Claude` set by IT, which makes `desktop-inference`
+and `desktop-mcp` `blocked` by design — "green" is unreachable there, so gate 2 could never close against
+that box. The gate now targets **`yogaNovo`** (Lenovo Yoga Slim 7x Gen 9, personal, no Cornell policy).
+The Cornell box is still worth onboarding for the artifacts that do work there, but it does not gate the
+cutover.
+
+`yogaNovo` is **Snapdragon X Elite / arm64**, which the design had not considered. Two consequences to
+settle on the box rather than assume: whether Claude Desktop ships an arm64 MSIX (or runs x64 under
+emulation — either way `desktopInstall`'s `Get-AppxPackage` probe reads the family from the packaging
+system, so detection is architecture-agnostic by construction since `f708816`), and whether the `.ps1`
+credential/headers helpers run the same way there. An arm64-only finding does not automatically transfer
+to the x64 Cornell fleet; if the two diverge, `alienTop` (x64, personal) is the tiebreak box.
+
+**First step on that box: run 3P mode.** Per `4efe63a`, third-party mode has never run on `yogaNovo` —
+`desktop-skills` blocks on "Cowork has not run in third-party mode" and `resolveDesktopStore` reports the
+default store with `live: false` rather than an observed one. So the box cannot yet answer the configLibrary
+write path, the `.ps1` helper spawn, or v2-entry survival either; choosing it as gate 2's target is a
+decision about *where* to prove Windows, not a result. Sign into third-party mode and open Cowork once
+before expecting any of those three to close.
 
 ## 7. Repo layout, errors, testing
 

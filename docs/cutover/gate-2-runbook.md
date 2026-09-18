@@ -1,14 +1,25 @@
 # Gate 2 — cutover from bootstrap.sh (spec §6)
 
-**Condition:** `bs onboard` green on the new Mac and the new Windows box; `bs doctor` green on both; memory-sync round-trip
-verified from each. Until then nothing below is applied.
+**Condition:** `bs onboard` green on the new Mac and on **`yogaNovo`** (the unmanaged Windows box); `bs doctor` green on
+both; memory-sync round-trip verified from each. Until then nothing below is applied.
 
-> **The Windows half of that condition is open.** S3 (`docs/spikes/2026-09-17-s3-windows-managed-policy-owns-desktop.md`,
-> JCB-L-T000692) found `HKLM\SOFTWARE\Policies\Claude` setting 16 keys on the Cornell-managed Windows box, including
-> `inferenceProvider`, `inferenceCredentialHelper` and `managedMcpServers`. `desktop-inference` and `desktop-mcp` are
-> therefore `blocked` by policy that `bs` must not edit — "green on the new Windows box" is unreachable there by
-> construction. `desktop-skills` is unaffected. Resolve the scope question (unmanaged Windows box, or narrow the Windows
-> surface to `desktop-skills` + the Code artifacts and reword this condition) before applying anything below.
+> **Why not the Cornell Windows box.** S3 (`docs/spikes/2026-09-17-s3-windows-managed-policy-owns-desktop.md`,
+> JCB-L-T000692) found `HKLM\SOFTWARE\Policies\Claude` setting 16 keys there, including `inferenceProvider`,
+> `inferenceCredentialHelper` and `managedMcpServers`. `desktop-inference` and `desktop-mcp` are `blocked` by policy that
+> `bs` must not edit, so "green" is unreachable on a managed box by construction. Decided 2026-09-17 (spec §6 gate table,
+> amended): gate 2 targets `yogaNovo` — Lenovo Yoga Slim 7x Gen 9, personal, no Cornell policy. The Cornell box is still
+> worth onboarding for what does work there (`desktop-skills`, the Code-surface artifacts), but it does not gate the cutover.
+>
+> **`yogaNovo` is arm64** (Snapdragon X Elite). Detection is architecture-agnostic since `f708816` — `desktopInstall` reads
+> the package family from `Get-AppxPackage` rather than a hardcoded string — but two things are unverified there: whether
+> Claude Desktop ships an arm64 MSIX or runs x64 under emulation, and whether the `.ps1` helpers run the same way. Record
+> both in the step-4 evidence file. An arm64-only result does not transfer to the x64 Cornell fleet; `alienTop` (x64,
+> personal) is the tiebreak box if they diverge.
+>
+> **3P mode has never run on `yogaNovo`** (`4efe63a`): `desktop-skills` blocks on "Cowork has not run in third-party mode"
+> and `resolveDesktopStore` reports the default store with `live: false`. Step 3 below is therefore not optional there —
+> sign in to third-party mode and open Cowork once before expecting the configLibrary write path, the `.ps1` helper spawn,
+> or v2-entry survival to close. Picking this box is a decision about where to prove Windows, not a result.
 
 ## On each new box
 
@@ -21,8 +32,11 @@ verified from each. Until then nothing below is applied.
    Desktop, choose the third-party option, open Cowork once (creates `ant-did` and the skills plugin), **quit Claude Desktop**, then run
    `bs onboard` again. `bs onboard` is idempotent — run it again after the first Desktop relaunch; the MCP servers and skills land on the
    second pass. Help → Troubleshooting → Copy Managed Configuration Report must show the keys read from the *user store* and the credential validated.
-   On the Cornell Windows box check `HKLM\SOFTWARE\Policies\Claude` holds only app-behavior keys (`disableAutoUpdates` …) — anything
-   else means IT owns the configuration and `desktop-inference` reports `blocked` by design.
+   On any Windows box check `HKLM\SOFTWARE\Policies\Claude` holds only app-behavior keys (`disableAutoUpdates` …) — anything
+   else means IT owns the configuration and `desktop-inference` reports `blocked` by design. On `yogaNovo` this is a
+   **precondition, not a diagnostic**: the key should be absent entirely. If it is set, the box is not the unmanaged box
+   this gate needs — stop and re-pick (see the condition block above), because no amount of onboarding will turn those
+   two artifacts green.
 4. Evidence: `bs doctor --json > docs/evidence/<label>-<date>.json` in this repo (redact nothing — doctor prints no values — but do read it).
 5. Memory round-trip: create a memory file in a mapped project on box A, `sync-memory --device <A> push`, on box B
    `sync-memory --device <B> pull`, confirm the file; then the reverse direction. No `.conflict-<device>` sidecars may appear.

@@ -55,19 +55,25 @@ Windows box. Neither can:
    `src/artifacts/templates/desktop-helpers.ts` remains inferred from the bundle's interpreter
    table, never observed. An unmanaged Windows box is required.
 
-A future session should not retry either question on this box.
+A future session should not retry either question on this box. **Both are now assigned to `yogaNovo`**
+(decided 2026-09-17 — spec §6 gate table and the gate-2 runbook condition block): Lenovo Yoga Slim 7x
+Gen 9, personal, no Cornell policy. Note it is Snapdragon X Elite / **arm64**, so a `.ps1`-helper result
+there is an arm64 result; `alienTop` (x64, personal) is the tiebreak box if x64 and arm64 diverge.
 
 ## What this does to gate 2
 
-The gate-2 exit condition currently reads "`bs onboard` green on the new Mac **and the new Windows
-box**". On a Cornell-managed Windows box that is unreachable by construction: three desktop
-artifacts are blocked by policy that boot-slapper must not edit. Either
+The gate-2 exit condition read "`bs onboard` green on the new Mac **and the new Windows box**", meaning
+the Cornell pilot box. That is unreachable by construction: two desktop artifacts are blocked by policy
+that boot-slapper must not edit.
 
-- the Windows half of gate 2 targets a **non**-managed Windows box, or
-- boot-slapper's Windows scope narrows to `desktop-skills` plus the Code-surface artifacts, and the
-  gate's wording changes to match.
+**Resolved 2026-09-17 — gate 2 targets `yogaNovo`** (unmanaged, personal). Amended in the spec's gate
+table (§6) and the runbook's condition block. The Cornell box is still worth onboarding for the artifacts
+that work there (`desktop-skills`, the Code-surface artifacts), but it no longer gates the cutover. The
+alternative considered and not taken was narrowing boot-slapper's Windows scope to `desktop-skills` plus
+the Code artifacts; that would have shipped a gate the managed fleet could pass but left the desktop
+artifacts unproven on Windows entirely.
 
-That is a scope decision, not an implementation task. Tracked in MeCP as
+Tracked in MeCP as
 `project:boot-slapper/windows-desktop-config-owned-by-cornell-it` (BLOCKED, rolls up under
 `program:machine-portability`) — see "MeCP staging" below; the entry was not written from the
 discovering session, which had no MeCP connection.
@@ -101,11 +107,20 @@ the box's store, so nothing was written to the portfolio. Per the mecp-conventio
 also needs a belief-revision lookup against the nearest existing beliefs, which could not be run
 from there. To be written from a MeCP-connected session:
 
-- **Work item** `project:boot-slapper/windows-desktop-config-owned-by-cornell-it`, status
-  **BLOCKED**, `metadata.program_ref: program:machine-portability`. Body: the takeover finding
-  above. Blocked on: the gate-2 scope decision named in "What this does to gate 2".
-- **Update** `project:boot-slapper/phase-3-desktop-cutover` with the box fact and the two
-  questions this box cannot answer.
+- **Work item** `project:boot-slapper/windows-desktop-config-owned-by-cornell-it`, status **SCOPED**
+  (not BLOCKED — the blocker was the gate-2 scope question, resolved the same day),
+  `metadata.program_ref: program:machine-portability`. Body: the takeover finding above. Remaining
+  work is the Cornell box's *partial* onboarding — `desktop-skills` and the Code-surface artifacts —
+  which is worth doing but no longer gates the cutover.
+- **Decision to log** — gate 2's Windows box moved from the Cornell pilot box to `yogaNovo`. This
+  contradicts the spec's original gate-2 row, so per conventions §3 it is a **SUPERSEDE**, not an
+  update: close the old belief with `valid_to: 2026-09-17` and create the successor with
+  `valid_from: 2026-09-17`, pointers in the two-part `<file_name>/<slug>` form. Rationale: "green" is
+  unreachable on a managed box, so the original condition could never be satisfied.
+- **Update** `project:boot-slapper/phase-3-desktop-cutover` with the box fact, the new gate-2 target,
+  and the arm64 caveat.
 - Claim hygiene: the MSIX fix to cite is `f708816` (already on `origin/main`), **not** this session's
   duplicate, which was dropped unpushed. What is *not* verified from this box: `npm run test:parity`
   (gate 1 needs the `cornell-ai-gateway` key, absent from this box's store) and anything on macOS.
+  `yogaNovo` itself is untouched by this session — the gate-2 target is a decision, not a result, and
+  per `4efe63a` that box has not run 3P mode either.
