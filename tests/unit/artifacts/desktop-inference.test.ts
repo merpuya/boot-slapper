@@ -126,6 +126,48 @@ describe("desktop-inference (darwin)", () => {
     expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
   });
 
+  // yogaNovo, 2026-09-18: onboard replaced a working static key with a helper, the vault had no
+  // `cornell-ai-gateway` entry, and Desktop lost inference — `helper exited code=1 ... "Element not found.
+  // Cannot get credential from Vault"`, stdoutBytes=0. The owner had to restore the static key by hand.
+  it("refuses to swap a live credential for a helper when the store has no key; a keyless fresh box still onboards", async () => {
+    const id = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    // the app's own entry: gateway, static key typed into the in-app window
+    const appEntry = JSON.stringify({ inferenceProvider: "gateway", inferenceGatewayBaseUrl: "https://api.ai.it.cornell.edu", inferenceGatewayApiKey: "typed-by-hand", inferenceCredentialKind: "static" });
+    const withKey = await box({ [`${L}/_meta.json`]: JSON.stringify({ appliedId: id, entries: [{ id, name: ENTRY_NAME }] }), [`${L}/${id}.json`]: appEntry });
+    secrets(withKey.io, false);   // exit 44: nothing in the store
+    const blocked = await desktopInference.detect(withKey.ctx);
+    expect(blocked).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/not in the secret store.*static key entered in the app.*stop inference/s) });
+    expect((blocked as { reason: string }).reason).toMatch(/bs secrets set cornell-ai-gateway/);
+    expect(desktopInference.plan(withKey.ctx, blocked)).toEqual([]);
+    expect(withKey.io.writes).toEqual([]);
+    // and the apply step refuses even if it is reached from a stale plan
+    await expect(desktopInference.apply(withKey.ctx, [{ id: "desktop-inference.entry", title: "" }]))
+      .rejects.toThrow(/not in the secret store and Claude Desktop is using/);
+    expect(withKey.io.writes).toEqual([]);
+    // once the key is there the same box plans normally
+    const stored = await box({ [`${L}/_meta.json`]: JSON.stringify({ appliedId: id, entries: [{ id, name: ENTRY_NAME }] }), [`${L}/${id}.json`]: appEntry });
+    secrets(stored.io);
+    expect((await desktopInference.detect(stored.ctx)).kind).toBe("drifted");
+    // a box with nothing to lose is NOT blocked: no applied entry, so an empty store cannot break anything
+    const fresh = await box(); secrets(fresh.io, false);
+    expect((await desktopInference.detect(fresh.ctx)).kind).toBe("absent");
+    await desktopInference.apply(fresh.ctx, desktopInference.plan(fresh.ctx, await desktopInference.detect(fresh.ctx)));
+    expect(fresh.io.files.has(`${L}/_meta.json`)).toBe(true);
+    expect((await desktopInference.verify(fresh.ctx)).find((c) => c.id === "secret")).toMatchObject({ status: "error" });
+  });
+
+  // A foreign helper is someone else's credential path (IT's, or a hand-rolled one) and replacing it has the same
+  // failure mode as replacing a static key, so it is gated the same way.
+  it("a foreign credential helper is treated as a live credential too", async () => {
+    const id = "99999999-9999-4999-8999-999999999999";
+    const { ctx } = await box({
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: id, entries: [{ id, name: ENTRY_NAME }] }),
+      [`${L}/${id}.json`]: JSON.stringify({ inferenceProvider: "gateway", inferenceGatewayBaseUrl: "https://api.ai.it.cornell.edu", inferenceCredentialKind: "helper-script", inferenceCredentialHelper: "/opt/it/creds.sh" }),
+    });
+    // no `secrets()` handler: `security` exits non-zero, so the store is empty
+    expect(await desktopInference.detect(ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/a credential helper \(\/opt\/it\/creds\.sh\)/) });
+  });
+
   it("blocked: not installed, too old, or a managed source owns the configuration", async () => {
     const none = await makeCtx({ opts, env: { USER: "aca34" } });
     expect(await desktopInference.detect(none.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/not installed/) });

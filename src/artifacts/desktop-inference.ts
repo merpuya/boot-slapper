@@ -1,6 +1,6 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
 import {
-  adoptedEntry, appliedEntry, bsDir, desktopInstall, desktopRunning, managedSources, managedTakeover, MIN_DESKTOP_VERSION, newEntryId, ourEntry,
+  adoptedEntry, appliedEntry, bsDir, cfgGet, desktopInstall, desktopRunning, managedSources, managedTakeover, MIN_DESKTOP_VERSION, newEntryId, ourEntry,
   runningError, upsertMeta, versionAtLeast, writeLibraryEntry, writeSidecar, ENTRY_NAME, type DesktopInstall, type OurEntry,
 } from "../engine/desktop.ts";
 import { defaultAccount } from "../engine/secrets/store.ts";
@@ -62,6 +62,10 @@ interface Facts {
   install: DesktopInstall; versionOld: boolean; takeover: string | null; managedKeys: number; running: boolean;
   ours: OurEntry | null | "invalid"; adopted: { name: string; baseUrl: string } | null;
   helper: string; helperBody: string; helperCurrent: boolean; wanted: Record<string, unknown>; docCurrent: boolean;
+  /** Is the gateway key actually in the store? The helper can only read what is there. */
+  haveSecret: boolean;
+  /** A credential the app is using right now that our write would replace: a static key, or someone else's helper. */
+  liveCredential: string | null;
 }
 
 async function facts(ctx: Ctx): Promise<Facts> {
@@ -75,11 +79,24 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const ours = install.installed ? await ourEntry(io, env.os, env.home) : null;
   const adopted = install.installed ? adoptedEntry(await appliedEntry(io, env.os, env.home), o.baseUrl) : null;
   const docCurrent = ours !== null && ours !== "invalid" && deepEqual(merged(ours.doc, wanted), ours.doc);
+  const haveSecret = (await ctx.secrets.get({ service: SECRET, account })) !== null;   // in-process read; the value is never kept
+  // What the applied entry currently authenticates with, if it is not already our helper. Replacing a working
+  // static key with a helper that cannot resolve takes inference down (yogaNovo, 2026-09-18) — the credential the
+  // owner is relying on is only visible here, before the write.
+  const appliedDoc = install.installed ? await appliedEntry(io, env.os, env.home) : null;
+  const live = appliedDoc && appliedDoc !== "invalid" ? appliedDoc.doc : null;
+  const liveKind = cfgGet(live, ["inference", "credential", "kind"], "inferenceCredentialKind");
+  const liveHelper = cfgGet(live, ["inference", "credential", "command"], "inferenceCredentialHelper");
+  const liveCredential = live === null ? null
+    : liveKind === "static" || live.inferenceGatewayApiKey !== undefined ? "a static key entered in the app"
+    : typeof liveHelper === "string" && liveHelper !== helper ? `a credential helper (${liveHelper})`
+    : null;
   return {
     install, versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),
     takeover: managedTakeover(sources), managedKeys: sources.reduce((n, s) => n + s.keys.length, 0),
     running: install.installed ? await desktopRunning(io, env.os) : false,
     ours, adopted, helper, helperBody, helperCurrent: (await io.readFile(helper)) === helperBody, wanted, docCurrent,
+    haveSecret, liveCredential,
   };
 }
 
@@ -88,6 +105,15 @@ function blockedReason(f: Facts, o: Opts): string | null {
   if (f.versionOld) return `Claude Desktop ${f.install.version} < ${MIN_DESKTOP_VERSION} — update it, then re-run`;
   if (f.takeover) return `managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored. Ask IT for the gateway profile, or check Developer → Configure Third-Party Inference… (read-only there): provider gateway, base URL ${o.baseUrl}, credential via bs secrets check ${SECRET}`;
   if (f.ours === "invalid") return "a boot-slapper config-library entry or _meta.json is not valid JSON — fix or delete it by hand, then re-run";
+  // The helper can only print what the store holds. With the key absent the write swaps a *working* credential for
+  // one that resolves to nothing and inference stops at the next launch — observed on yogaNovo 2026-09-18, where the
+  // owner had to restore the static key by hand. Only a block is safe here: apply steps run unattended under
+  // `--auto`, so a warning would be read by nobody and the box would go down anyway. An empty store on a box with no
+  // credential yet is *not* blocked — there is nothing to lose, the entry is written, and `verify` says the key is
+  // missing — so this cannot stall a fresh onboard.
+  if (!f.haveSecret && f.liveCredential) {
+    return `${SECRET} is not in the secret store, and Claude Desktop is currently using ${f.liveCredential} — writing the credential helper now would leave it with nothing to read and stop inference at the next launch. Run bs secrets set ${SECRET} first (bs secrets check ${SECRET} confirms it), then re-run. Leaving it as-is also works: inference keeps running on the credential it has.`;
+  }
   return null;
 }
 
@@ -134,6 +160,10 @@ export const desktopInference: Artifact = {
           const f = await facts(ctx);
           if (f.running) throw new Error(runningError(ID));
           if (f.ours === "invalid") throw new Error("boot-slapper entry is not valid JSON — fix or delete it by hand, then re-run");
+          // Re-checked here, not just in detect: the plan screen sits between the two, and the store is exactly the
+          // kind of state that changes in between (the owner may run `bs secrets set` in another terminal — or, on a
+          // box that reached this step from a stale plan, may have removed it).
+          if (!f.haveSecret && f.liveCredential) throw new Error(`${SECRET} is not in the secret store and Claude Desktop is using ${f.liveCredential} — run bs secrets set ${SECRET} first; writing the helper now would stop inference`);
           const id = f.ours?.id ?? newEntryId();
           await writeLibraryEntry(io, env.os, env.home, id, f.ours ? merged(f.ours.doc, f.wanted) : f.wanted);
           await upsertMeta(io, env.os, env.home, { id, name: ENTRY_NAME }, false);
