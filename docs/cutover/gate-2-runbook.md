@@ -3,6 +3,13 @@
 **Condition:** `bs onboard` green on the new Mac and the new Windows box; `bs doctor` green on both; memory-sync round-trip
 verified from each. Until then nothing below is applied.
 
+> **The Windows half of that condition is open.** S3 (`docs/spikes/2026-09-17-s3-windows-managed-policy-owns-desktop.md`,
+> JCB-L-T000692) found `HKLM\SOFTWARE\Policies\Claude` setting 16 keys on the Cornell-managed Windows box, including
+> `inferenceProvider`, `inferenceCredentialHelper` and `managedMcpServers`. `desktop-inference` and `desktop-mcp` are
+> therefore `blocked` by policy that `bs` must not edit — "green on the new Windows box" is unreachable there by
+> construction. `desktop-skills` is unaffected. Resolve the scope question (unmanaged Windows box, or narrow the Windows
+> surface to `desktop-skills` + the Code artifacts and reword this condition) before applying anything below.
+
 ## On each new box
 
 1. Fresh-box shim: macOS `curl -fsSL https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.sh | bash`, Windows
