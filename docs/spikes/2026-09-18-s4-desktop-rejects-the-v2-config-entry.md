@@ -5,6 +5,10 @@ boot-slapper-owned **v2** config-library entry survive Claude Desktop, and does 
 `.ps1` credential/headers helper through `powershell.exe -File`? Both were assigned to `yogaNovo`
 and both were unanswerable until 3P mode actually ran there (S3, 2026-09-17).
 
+**Both are now answered — v2 no, `.ps1` yes — and a third bug fell out of the second one: `bs secrets
+set` had never once worked on Windows.** Read the vault section below before trusting any Windows
+secret-store result recorded before 2026-09-18.
+
 **Date / box:** 2026-09-18, **`yogaNovo`** (Windows 11 Home 26340, personal, **arm64** Snapdragon
 X Elite), Claude Desktop **2.2553.0.0** (`appVersion: '2.2553.0'`, `arch: 'arm64'`,
 `nodeVersion: '24.20.0'`), CCD 2.1.274, MSIX family `Claude_pzs8sxrjxfjjc`. Note the version jump:
@@ -41,7 +45,7 @@ wholesale, so neither server was ever offered to the client. `mcp.log` shows onl
 `cornell_secure_tools` connecting, and that one comes from `claude_desktop_config.json`
 (`mcpServers`, an `npx mcp-remote` stdio server), **not** from the config library.
 
-### Both unknowns, resolved — one negatively, one still open
+### Both unknowns, resolved — v2 negatively, `.ps1` affirmatively (the latter after the flat-write fix below)
 
 - **v2-entry survival: disproved on this build.** The open question was whether a boot-slapper v2
   entry survives an *in-app apply*. It does not get that far — 2.2553.0.0 does not recognize
@@ -50,14 +54,23 @@ wholesale, so neither server was ever offered to the client. `mcp.log` shows onl
   been written to a real box exactly once, and was rejected. Treat `writeLibraryEntry`'s v2 shape as
   **never validated against a shipping app**, not as validated-and-then-regressed — no evidence
   exists for an app version that ever accepted it.
-- **The `.ps1` helper spawn: still unverified, and unreachable by this route.** No `.ps1` spawn
-  appears in `main.log`; the only PowerShell strings are `PATH` dumps and an unrelated
-  `preview-hidden-park-helper` (an Electron quit-cleanup handler, nothing to do with credentials).
-  The `inference.credential` and `mcp.managedServers[].headersHelper` blocks that *name* the helpers
-  were discarded before anything could spawn. The claim in CLAUDE.md — that Desktop runs a `.ps1`
-  through `powershell.exe -File`, taken from the bundle's interpreter table and never observed —
-  remains unobserved. It cannot be tested until the app accepts a config that references a helper.
-  Because this box is arm64, a future result here is an arm64 result; `alienTop` (x64) is the tiebreak.
+- **The `.ps1` helper spawn: unreachable on the v2 entry, then verified once the entry was flat.** On
+  the v2 launch no spawn appears in `main.log` — the only PowerShell strings are `PATH` dumps and an
+  unrelated `preview-hidden-park-helper` (an Electron quit-cleanup handler, nothing to do with
+  credentials) — because the blocks that *name* the helpers were discarded first. After the flat-write
+  fix, the 01:07:18 launch spawns **both**:
+
+      01:07:18 [info] [custom-3p] Credentials loaded from managed config { provider: 'gateway', mcpServerCount: 2 }
+      01:07:18 [info] [custom-3p] running helper { helperPath: 'C:\Users\merpu\.config\boot-slapper\desktop-inference-credential.ps1', args: [] }
+      01:07:18 [info] [custom3p-mcp-headers] running helper { helperPath: 'C:\Users\merpu\.config\boot-slapper\desktop-mcp-mecp-headers.ps1', args: [] }
+
+  So the CLAUDE.md claim taken from the bundle's interpreter table — Desktop runs a `.ps1`, no
+  arguments — **holds, and is now observed** rather than inferred. `args: []` matches S1 exactly.
+  `mcpServerCount: 2` (was 0) is the same launch proving flat `managedMcpServers` is read. This box is
+  arm64, so this is an arm64 result; `alienTop` (x64) remains the tiebreak if the two ever diverge.
+  Also newly visible: the app retries a rejected helper (`server rejected helper credential —
+  re-running headers helper now`) and backs off (`failCount: 1, backoffMs: 30000`) rather than
+  dropping the server — so a credential that arrives late should connect without a relaunch.
 
 ## Why nothing broke — `writeLibraryEntry` unions, it does not replace
 
@@ -84,8 +97,79 @@ Two consequences to hold onto:
   and, being argv, is visible to any process listing. Rotation is the clean exit once a helper route
   works.
 - `[custom-3p] ConfigHealth recomputed { state: 'provider_error', provider: 'gateway' }` appears at
-  00:22:42 — **before** the onboard run (00:34), so it is not caused by the v2 write. Unexplained;
-  probably the missing gateway key in the secret store. Not chased here.
+  00:22:42 — **before** the onboard run (00:34), so it is not caused by the v2 write. Consistent with
+  the empty secret store the vault bug below explains.
+
+## The third bug: `bs secrets set` had never worked on Windows
+
+Chasing why the helpers failed turned up a defect with a much wider blast radius than the schema one.
+
+After the flat-write onboard, Desktop spawned both helpers and both exited 1:
+
+    01:07:20 [error] [custom-3p] helper exited code=1 (elapsed=1008ms stdoutBytes=0)
+      stderr="Exception calling "Retrieve" with "2" argument(s): "Element not found. Cannot get credential from Vault""
+      At ...\desktop-inference-credential.ps1:6 char:1 + $c = $v.Retrieve('cornell-ai-gateway', 'merpu')
+
+Inference stopped and the owner restored the static key by hand. The obvious reading — "the owner never
+stored the key" — was wrong. **`bs secrets set` reported success and stored nothing, every time.**
+
+`PasswordVault` commits asynchronously. The old `set` script was:
+
+    try {
+      try { $old = $v.Retrieve(svc, acct); $v.Remove($old) } catch {}
+      $v.Add((New-Object ...PasswordCredential(svc, acct, value)))
+      exit 0                        # ← tears the process down before the commit lands
+    } catch { exit 45 }
+
+The `exit 0` reached through a `try`, immediately after `Add`, killed PowerShell mid-commit: exit code
+0, no stderr, credential gone. **Deterministic — 5/5 distinct pairs lost, exit 0 every time.** Ablation
+on the box, one variable at a time:
+
+| script | result |
+|---|---|
+| the store's script verbatim | **LOST** (5/5) |
+| minus the outer `try` (`exit 0` at top level) | PERSISTED |
+| minus `$ErrorActionPreference` | LOST |
+| minus `exit 0` (still inside `try`) | LOST |
+| minus the `Retrieve`/`Remove` preamble | LOST |
+| `try { Add } catch {}` then `exit 0` *after* the try | PERSISTED |
+| `try { Add; exit 0 } catch {}` | LOST |
+| `Add` alone, or `Add; exit 0` with no `try` | PERSISTED |
+
+So `$ErrorActionPreference` and the `Retrieve`/`Remove` preamble were both red herrings; the trigger is
+precisely **an `exit` after `Add` inside a `try` block**. `Add` + `Retrieve` in the *same* PowerShell
+always worked, which is why nothing local ever caught it — only a fresh process sees the loss.
+
+Fixed (`c0984b0`): the script now ends on `Add`. With `EAP='Stop'` an `Add` failure is already a
+terminating error, so PowerShell exits non-zero on its own — the hand-rolled `exit 45` bought nothing
+and cost the commit. `set` also **reads the value back in a fresh process** and throws if it is absent;
+the old `set` trusted its own exit code, which is exactly why this was invisible for a day. stderr
+stays out of the thrown error: a PowerShell error record echoes the offending source line, which is the
+`PasswordCredential(...)` call carrying the plaintext (an existing test asserts this, and caught the
+attempt to add it).
+
+Verified after the fix: `bs secrets set cornell-ai-gateway` → `bs secrets check` reports **present**;
+the helper that failed an hour earlier now exits 0 with a 25-byte `sk-`-prefixed value (shape checked,
+never printed); `desktop-inference` moved `blocked` → `drifted`, releasing the guard below.
+
+**Consequence for the record: no Windows secret-store result recorded before 2026-09-18 can be
+trusted.** Every "key missing" on a Windows box may have been this bug rather than an unstored key —
+including the reds in S3's Cornell-box `bs doctor` run. macOS is unaffected (`KeychainStore` shells out
+to `security -i` and never had the pattern).
+
+### And the guard that should have prevented the outage
+
+`desktop-inference` planned the helper-script credential without asking whether the secret it would read
+exists — `verify` checked, `detect`/`plan` did not. So onboard could take down a working box, which is
+worse than failing to improve one. `118f6b1` blocks in `detect` (and re-checks in the entry apply step)
+when the store has no key **and** the applied entry is currently authenticating some other way: a static
+key, or a foreign helper — replacing IT's policy-supplied helper fails identically. A box with nothing to
+lose is deliberately *not* blocked, so a fresh onboard cannot stall. Blocking rather than warning because
+apply steps run unattended under `--auto`, where a warning is read by nobody.
+
+Both fixes are needed and neither is sufficient alone: the guard stops the unsafe write, the vault fix
+stops the store from lying about it. The guard by itself would have blocked forever on a box where `set`
+could never succeed.
 
 ## What did work
 
@@ -107,14 +191,21 @@ Two consequences to hold onto:
 Draining S3's staging block is **still** outstanding — this session had no MeCP tools either, for the
 same reason the servers did not load. Add to it:
 
-- Work item `project:boot-slapper/desktop-v2-config-entry-rejected` at **SCOPED** — `writeLibraryEntry`
-  emits a nested v2 shape no shipping Desktop is known to accept; decide whether v1 flat keys are the
-  real target schema.
+- Work item `project:boot-slapper/desktop-v2-config-entry-rejected` at **DONE** — the schema question is
+  answered and fixed in `da1802c` (flat v1 only, readers still accept both).
 - A **SUPERSEDE** on any belief that v2-entry survival was an open-but-likely question: it is now
   answered *no* for 2.2553.0.0 (`valid_from: 2026-09-18`). The predecessor belief closes
   `valid_to: 2026-09-18`.
-- Update `project:boot-slapper/phase-3-desktop-cutover`: `desktop-skills` verified on Windows;
-  `desktop-inference`/`desktop-mcp` blocked on a schema question, not a policy question, on `yogaNovo`.
+- A **SUPERSEDE** on the `.ps1`-helper belief, which was held as *inferred from the bundle's interpreter
+  table, unobserved*. Now **observed** on arm64 (`running helper { helperPath: …ps1, args: [] }`),
+  `valid_from: 2026-09-18`. Note it is an arm64 observation; `alienTop` is the x64 tiebreak.
+- Work item `project:boot-slapper/windows-secret-store-never-committed` at **DONE** (`c0984b0`) — with
+  the correction that matters more than the fix: **every Windows secret-store result before 2026-09-18 is
+  suspect**, including S3's Cornell-box doctor reds. Any decision-log entry that reasoned from "the key is
+  missing on Windows" should be re-read with this in mind.
+- Update `project:boot-slapper/phase-3-desktop-cutover`: on `yogaNovo`, `desktop-skills` and `desktop-mcp`
+  verified end-to-end, `desktop-inference` is `drifted` and applyable now that the vault works. The
+  remaining Windows gap is the flat-entry relaunch check (below), not a schema or policy question.
 
 ## Root cause, and the fix (same session)
 
@@ -138,27 +229,65 @@ both from treating "mentioned in the entry" as "loaded by the app":
    object survives a rewrite) from `active` (the flat key alone). Drift, `detect`'s absent/drifted
    choice, and `verify`'s per-server checks all judge `active`. Nested-only now reads `absent`.
 
-Verified: **260/260 unit** (32 files, 4 new tests), typecheck and build clean, and `bs plan` on this box
-moved `desktop-mcp` from the false `present` to `absent` with a real plan. `desktop-skills` reports
-`present` throughout — it never depended on the schema.
+Verified: **264/264 unit** (32 files, 8 new tests across the three fixes), typecheck and build clean.
+`bs plan` on this box moved `desktop-mcp` from the false `present` to `absent`, then to `present` once the
+servers were written flat; `desktop-skills` reports `present` throughout — it never depended on the schema.
+
+Three commits, in the order the bugs were found: `da1802c` (flat write), `118f6b1` (credential guard),
+`c0984b0` (vault commit). The docs commit `f2e9ed2` predates the last two.
+
+### What this run says about the method
+
+The v2 schema, the "flat is typical of a hand-authored entry" comment, and the `.ps1` interpreter claim
+were all **inferred from documents and reasoned about confidently for a week**. Two were wrong. The
+schema error survived because adopt-mode never exercised the writer, and the vault error survived because
+`set` and `get` were only ever tested against the same PowerShell process (and, in units, against a fake
+that cannot model an async commit). Both are the same shape of gap: **the code was never run against the
+real thing in the one configuration where it mattered.** S1/S2 flagged their own inference honestly
+("inferred from the document") — the failure was downstream, in treating the inference as settled.
+
+## State of the box when this note was written
+
+`bs plan` on `yogaNovo`: `desktop-mcp` **present**, `desktop-skills` **present**, `desktop-inference`
+**drifted** (will rewrite the inference keys; Desktop running). `cornell-ai-gateway` is in the vault and
+the credential helper resolves — exit 0, 25 bytes, `sk-` prefix (shape checked, value never printed).
+`mecp-device-token` and `mct-sync-token` are still absent and must be minted on an admin box.
 
 ## Next
 
-Quit Desktop, `bs onboard --only desktop-inference,desktop-mcp`, relaunch, and read `main.log`: no
-`Ignoring local configuration value` lines and `mcpServerCount: 2` is the result to look for. That
-also finally puts the **`.ps1` helper spawn** question in reach, since the accepted entry will name
-both helpers — the first chance to observe `powershell.exe -File` rather than infer it. `mecp` will
-still fail auth until `mecp-device-token` is minted on an admin box; a *spawn* in the log is the finding,
-not a successful connection.
+1. **Quit Desktop, `bs onboard --only desktop-inference`, relaunch.** This is the one step left to close
+   the configLibrary write path end-to-end on Windows: the entry moves from the app's static key to the
+   `helper-script` credential, and the helper now has something to read. Look for a launch with **no**
+   `Ignoring local configuration value` lines for `inference`/`mcp` — those five warnings currently come
+   from the **dead v2 block** still sitting in the entry from the pre-fix write, which the app ignores and
+   boot-slapper deliberately does not remove (it is not ours to delete). If they persist and inference
+   still works, that is the expected outcome, not a regression. `[custom-3p] running helper` followed by a
+   non-zero `stdoutBytes` is the success signal.
+2. **Consider clearing the dead v2 block by hand** once (1) is confirmed, purely to quiet the log. Not
+   boot-slapper's job; a one-line edit to `configLibrary\866c62c2-….json` removing `$schemaVersion`,
+   `inference`, `mcp`, `models`, `telemetry`. Back it up first.
+3. **Rotate the gateway key.** It was in plaintext in the library entry and is *still* in
+   `claude_desktop_config.json`'s `cornell_secure_tools` argv, visible to any process listing. The helper
+   route makes rotation clean; nothing else does.
+4. **MeCP remains unwritten** — the staging block above plus S3's. First box with a `mecp-device-token`
+   drains both.
 
 Open, and not answered here: `MIN_DESKTOP_VERSION` is `1.19367.0`, but S2 records the `managedMcpServers`
 3P scope as **≥1.2581.0** — a different threshold. `versionAtLeast("2.2553.0", "1.19367.0")` passes, so
 nothing is blocked today, but these version strings do not order the way semver would suggest and the
-floor may be checking the wrong thing.
+floor may be checking the wrong thing. Filed in CLAUDE.md.
 
 ## Files of interest
 
-- `%LOCALAPPDATA%\Claude-3p\logs\main.log` lines 1970–1990 — the rejection block and `mcpServerCount: 0`
-- `%LOCALAPPDATA%\Claude-3p\configLibrary\866c62c2-….json` — the union entry, both shapes
+- `%LOCALAPPDATA%\Claude-3p\logs\main.log` — lines 1970–1990: the v2 rejection block and
+  `mcpServerCount: 0`; line ~3139 onward: the flat-entry launch with `mcpServerCount: 2` and both
+  `running helper` spawns; lines 3023/3349: the `Element not found. Cannot get credential from Vault`
+  failures that led to the vault bug
+- `%LOCALAPPDATA%\Claude-3p\configLibrary\866c62c2-….json` — the union entry: live flat keys beside the
+  dead v2 block
 - `~/.config/boot-slapper/desktop.json` — sidecar (entryId, servers, skill hash)
-- `src/engine/desktop.ts` — `writeLibraryEntry` (the v2 emitter), `ourEntry` name fallback (line ~262)
+- `~/.config/boot-slapper/backups/_meta.json.bs-backup-20260918-003216` — pre-rename meta, kept outside
+  the store because Desktop may enumerate that directory
+- `src/artifacts/desktop-inference.ts` — `wantedDoc` (the flat emitter), `blockedReason` (the credential
+  guard); `src/artifacts/desktop-mcp.ts` — `facts()`'s `current` vs `active` split
+- `src/engine/secrets/passwordvault.ts` — `set`, and the comment explaining why nothing may follow `Add`
