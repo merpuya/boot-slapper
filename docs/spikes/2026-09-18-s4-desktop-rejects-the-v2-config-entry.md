@@ -255,22 +255,32 @@ the credential helper resolves — exit 0, 25 bytes, `sk-` prefix (shape checked
 
 ## Next
 
-1. **Quit Desktop, `bs onboard --only desktop-inference`, relaunch.** This is the one step left to close
-   the configLibrary write path end-to-end on Windows: the entry moves from the app's static key to the
-   `helper-script` credential, and the helper now has something to read. Look for a launch with **no**
-   `Ignoring local configuration value` lines for `inference`/`mcp` — those five warnings currently come
-   from the **dead v2 block** still sitting in the entry from the pre-fix write, which the app ignores and
-   boot-slapper deliberately does not remove (it is not ours to delete). If they persist and inference
-   still works, that is the expected outcome, not a regression. `[custom-3p] running helper` followed by a
-   non-zero `stdoutBytes` is the success signal.
-2. **Consider clearing the dead v2 block by hand** once (1) is confirmed, purely to quiet the log. Not
-   boot-slapper's job; a one-line edit to `configLibrary\866c62c2-….json` removing `$schemaVersion`,
-   `inference`, `mcp`, `models`, `telemetry`. Back it up first.
-3. **Rotate the gateway key.** It was in plaintext in the library entry and is *still* in
-   `claude_desktop_config.json`'s `cornell_secure_tools` argv, visible to any process listing. The helper
-   route makes rotation clean; nothing else does.
-4. **MeCP remains unwritten** — the staging block above plus S3's. First box with a `mecp-device-token`
-   drains both.
+**(1) is done — closed at 12:02 the same day; the rest stand.**
+
+1. ~~Quit Desktop, `bs onboard --only desktop-inference`, relaunch.~~ **Done 2026-09-18 12:02. All three
+   desktop artifacts report `present` on Windows for the first time.** The 12:02:47 launch shows **zero**
+   `Ignoring local configuration value` lines and **zero** `credential helper failed` — both present at
+   01:07:58 with the same helper — plus `mcpServerCount: 2` and `ConfigHealth` `provider_error` →
+   `not_testable`. The dead v2 block is gone from the entry, so (2) is moot. Final entry is pure flat v1
+   with `inferenceCredentialKind: "helper-script"`; `openbrain`'s `oauth` returned as `{ mode: "dcr" }`,
+   confirming `sameServer`'s oauth-by-presence rule on Windows.
+2. ~~Clearing the dead v2 block~~ — no longer needed; the onboard rewrote the entry without it.
+3. **Rotate the gateway key — now load-bearing, not hygiene.** `inferenceGatewayApiKey` is *still in the
+   entry* in plaintext: `merged()` only overwrites `OWNED` keys by design, so boot-slapper never deletes
+   what it did not write, which means the old static key sits beside the helper meant to replace it and
+   the app may still prefer it. Rotation is the only way to prove the helper is the live credential path.
+   It is also still in `claude_desktop_config.json`'s `cornell_secure_tools` argv.
+4. **MeCP remains unwritten** — the staging block above plus S3's. First box with a real
+   `mecp-device-token` drains both. **Do not shortcut this with the value already in
+   `~/.config/mecp/api_key` on `yogaNovo`:** it is 39 chars with no dots — not a JWT — and
+   `mint-device-token.ts` mints device tokens *as* JWTs, so that is the **master `API_KEY`** shape, which
+   the script's own header says devices should never hold. It does authenticate (`Authorization: Bearer`
+   → 200 OK on `POST /mcp` initialize, verified 2026-09-18), which is the problem rather than the
+   reassurance. Present since 2026-08-06; six weeks unnoticed because the mint script installs *both*
+   credential kinds to that same path, so only JWT shape distinguishes them. Mint
+   `--device yoga-novo --scope write`, install over the file, `bs secrets set mecp-device-token`, then
+   consider rotating the master (kills all derived tokens — plan re-minting). A shape check at that read
+   site would prevent a recurrence, and other devices are worth checking for the same condition.
 
 Open, and not answered here: `MIN_DESKTOP_VERSION` is `1.19367.0`, but S2 records the `managedMcpServers`
 3P scope as **≥1.2581.0** — a different threshold. `versionAtLeast("2.2553.0", "1.19367.0")` passes, so

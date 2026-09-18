@@ -93,19 +93,54 @@ is missing on Windows" should be re-read.
 - **Not run:** `npm run test:parity` (gate 1 needs `~/.claude/bootstrap.sh`, absent here). Nothing on
   macOS. No `bs onboard --only desktop-inference` yet — that is the next step and it ends the session.
 
-## Open items / known follow-ups
+## Postscript (same session, after the note was first written): gate 2's Windows leg is CLOSED
 
-- **`bs onboard --only desktop-inference` is the one step left** to close the Windows configLibrary
-  write path end-to-end. Every prerequisite is now in place. Expect the five `Ignoring local
-  configuration value` warnings to *persist* — they are the dead v2 block from the pre-fix write,
-  which boot-slapper deliberately does not delete (not ours to remove). Warnings plus working
-  inference is the success case, not a regression. Signal: `running helper` followed by a **non-zero**
-  `stdoutBytes`.
-- **Rotate the gateway key.** It sat in plaintext in the config-library entry and is *still* in
-  `claude_desktop_config.json`'s `cornell_secure_tools` argv (`--header x-litellm-api-key:Bearer
-  sk-…`), which is a second copy visible to any process listing. The helper route makes rotation
-  clean; nothing else does. Cornell-side action.
-- **MeCP is still unwritten** — no `mecp-device-token` on this box (and, now known, no way to have
+`bs onboard --only desktop-inference` ran at 12:02. **All three desktop artifacts now report
+`present` on Windows for the first time.** The 12:02:47 launch is clean, and two of the three signals
+are confirmations by *absence*:
+
+- **zero** `Ignoring local configuration value` lines (the dead v2 block is gone from the entry)
+- **zero** `[custom-3p] credential helper failed` after 12:02 — the inference helper is spawned at
+  12:02:47 and nothing follows it, versus 01:07:58 where the same helper logged both an exit-1 and a
+  failure
+- `mcpServerCount: 2`, and `ConfigHealth` improved from `provider_error` → `not_testable` (the app
+  declining to probe a helper-supplied credential, not a fault)
+
+The final entry is pure flat v1: `inferenceCredentialKind: "helper-script"`,
+`inferenceCredentialHelper` pointing at the `.ps1`, both managed servers under flat
+`managedMcpServers`, no nested `mcp`/`inference` block. Note `openbrain`'s `oauth` came back as
+`{ mode: "dcr" }` — boot-slapper wrote `true` and the app normalized it, which is exactly what
+`sameServer` (oauth by presence) exists to tolerate; a 2026-09-16 Mac rule now confirmed on Windows.
+
+**Still in the entry: `inferenceGatewayApiKey` in plaintext.** `merged()` only overwrites `OWNED`
+keys, deliberately, so boot-slapper never deletes what it did not write — but the old static key now
+sits beside the helper meant to replace it, and the app may still prefer it. Rotation is therefore no
+longer just hygiene: it is the only way to prove the helper is the live credential path.
+
+## Open items / known follow-ups
+- **Rotate the gateway key** — now load-bearing, not just hygiene (see postscript). It is in the
+  config-library entry in plaintext *and* in `claude_desktop_config.json`'s `cornell_secure_tools` argv
+  (`--header x-litellm-api-key:Bearer sk-…`), visible to any process listing. Cornell-side action.
+- **`~/.config/mecp/api_key` on this box appears to hold the MASTER MeCP key, not a device token.**
+  Found while looking for an existing token to reuse. It is 39 chars with **no dots — not a JWT**,
+  and `mecp/scripts/mint-device-token.ts` mints device tokens as JWTs (`createJwt("device",
+  { device, scope }, …)` — per-device, `read`/`write`, ≤366-day expiry, revocable via
+  `MECP_DEVICE_DENYLIST`). The script's own header says the master is needed only where minting
+  happens, "so devices never need it". It **does** authenticate: `Authorization: Bearer <value>` →
+  200 OK on `POST https://mecp.kearnsapuya.net/mcp` (initialize), verified 2026-09-18 — which is the
+  problem, not the reassurance. Present since 2026-08-06.
+  **Do not copy it into the vault as `mecp-device-token`**: that would give a master-scoped credential
+  a second home and wire it into two shims that feed Claude Desktop, with none of the per-device
+  revocation, scope limit or expiry the device-token design exists to provide. Correct fix is the
+  runbook's: `API_KEY=… npx tsx scripts/mint-device-token.ts --device yoga-novo --scope write`,
+  install over that file (mode 600), then `bs secrets set mecp-device-token` with the same value.
+  Then consider rotating the master (which kills all derived tokens — plan re-minting).
+  Why it hid for six weeks: the mint script's install path is `~/.config/mecp/api_key` for *both*
+  credential kinds, so a master key installed there is indistinguishable from a provisioned device
+  except by JWT shape. A shape check at that read site would surface it, and other devices are worth
+  checking for the same condition. Spawned as its own task; boot-slapper's two service names
+  (`mecp-api-key` vs `mecp-device-token`) are confirmed *not* redundant.
+- **MeCP is still unwritten** — no `mecp-device-token` in the vault (and, now known, no way to have
   stored one before today's fix). S3's staging block *and* S4's are both undrained: a **DONE** for the
   v2 schema item, two **SUPERSEDE**s (v2 answered no; the `.ps1` belief moves from inferred to
   observed), a **DONE** for the vault bug carrying the pre-09-18 correction above, and a
@@ -136,13 +171,20 @@ is missing on Windows" should be re-read.
 
 ## Next session — suggested starting point
 
-**Fetch first.** Then, if on `yogaNovo`: quit Desktop and run `bs onboard --only desktop-inference`
-from a terminal *outside* the app — this session could not, being hosted inside it. Relaunch and read
-`main.log` for `running helper` with non-zero `stdoutBytes`. That closes gate 2's Windows leg.
+**Fetch first.** Gate 2's Windows leg is closed (see postscript), so the next moves are the two
+credential items, in this order:
 
-If on a MeCP-connected box: drain the two staging blocks instead. They are the only unrecorded output
-of the last two sessions, and one of them is a correction that invalidates earlier Windows findings —
-the longer it sits, the more likely something reasons from the bad data.
+1. **The suspected master key on this box** — confirm and replace with a properly scoped device token.
+   It is the only item here with a security dimension, and it is six weeks old.
+2. **Rotate the Cornell gateway key**, which also proves the helper (not the leftover static key) is
+   the live path.
+
+Then, on a MeCP-connected box, drain the two staging blocks. They are the only unrecorded output of the
+last three sessions, and one is a correction that invalidates earlier Windows findings — the longer it
+sits, the more likely something reasons from the bad data.
+
+Gate 2 itself: the Windows box is done. What remains for the gate as a whole is whatever the runbook
+still assigns to macOS, plus `open-brain-auth` (a manual in-app Connect on this box) — neither blocked.
 
 **Method note worth carrying:** the v2 schema, the "flat is typical of a hand-authored entry" comment,
 and the `.ps1` interpreter claim were all inferred from documents and held confidently for a week. Two
