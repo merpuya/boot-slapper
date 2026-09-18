@@ -19,20 +19,41 @@ export const D = {
 const SECRET = "cornell-ai-gateway" as const;
 const trimSlash = (u: string) => u.replace(/\/+$/, "");
 
-/** The nested v2 document boot-slapper owns. desktop-mcp adds `mcp.managedServers` to the same entry; keys outside these three are never touched here. */
+/**
+ * The **v1 flat** document boot-slapper owns. desktop-mcp adds `managedMcpServers` to the same entry; keys
+ * outside `OWNED` are never touched here.
+ *
+ * Flat, not nested v2, because v2 is not accepted by any shipping build we have seen: S1 (2026-09-10)
+ * *inferred* both shapes from the bootstrap schema doc and called v2 "what the app's own JSON export
+ * writes", and boot-slapper wrote v2 on that basis for a week without ever putting one on a real box.
+ * S4 (2026-09-18, yogaNovo, Desktop 2.2553.0.0) did, and the app discarded every nested key by name —
+ * `Ignoring local configuration value "inference": not a recognized configuration key`, then
+ * `mcpServerCount: 0`. The flat spellings below are S1 §"Keys the owner profile needs" and are also what
+ * the app itself writes when the owner configures inference in the in-app window. Readers stay
+ * shape-agnostic via `cfgGet`, so an entry the app wrote in either shape is still understood.
+ */
 export function wantedDoc(o: Opts, helper: string): Record<string, unknown> {
   return {
-    $schemaVersion: 2,
-    inference: { provider: "gateway", baseUrl: o.baseUrl, credential: { kind: "helper-script", command: helper, ttlSec: 3600, authScheme: o.authScheme ?? "bearer" } },
-    models: { discoveryEnabled: true },
-    telemetry: { disableNonessential: true, disableNonessentialServices: true },
+    inferenceProvider: "gateway",
+    inferenceGatewayBaseUrl: o.baseUrl,
+    inferenceGatewayAuthScheme: o.authScheme ?? "bearer",
+    inferenceCredentialKind: "helper-script",
+    inferenceCredentialHelper: helper,
+    inferenceCredentialHelperTtlSec: 3600,
+    modelDiscoveryEnabled: true,
+    disableNonessentialTelemetry: true,
+    disableNonessentialServices: true,
   };
 }
-const OWNED = ["$schemaVersion", "inference"] as const;
+/**
+ * Every key `wantedDoc` emits is owned outright. The nested shape needed a per-cluster merge (`models` and
+ * `telemetry` were objects the user or the app could also hold keys in); flat keys are scalars, so a plain
+ * overwrite is the whole story and anything else in the document — including a stale nested v2 block the
+ * app ignores — is left as it was found.
+ */
+const OWNED = Object.keys(wantedDoc({ baseUrl: "" }, "")) as ReadonlyArray<string>;
 function merged(existing: Record<string, unknown>, wanted: Record<string, unknown>): Record<string, unknown> {
-  const models = { ...((existing.models as Record<string, unknown>) ?? {}), ...(wanted.models as Record<string, unknown>) };
-  const telemetry = { ...((existing.telemetry as Record<string, unknown>) ?? {}), ...(wanted.telemetry as Record<string, unknown>) };
-  const out: Record<string, unknown> = { ...existing, models, telemetry };
+  const out: Record<string, unknown> = { ...existing };
   for (const k of OWNED) out[k] = wanted[k];
   return out;
 }
@@ -82,7 +103,7 @@ export const desktopInference: Artifact = {
     if (!f.helperCurrent) details.push(`${D.helper} — will write ${f.helper}`);
     if (f.ours === null) details.push(`${D.entry} — will add an entry named '${ENTRY_NAME}' and apply it (existing entries untouched)`);
     else if (f.ours !== "invalid") {
-      if (!f.docCurrent) details.push(`${D.stale} — will rewrite the inference/models/telemetry keys`);
+      if (!f.docCurrent) details.push(`${D.stale} — will rewrite the inference keys`);
       if (!f.ours.applied) details.push(`${D.notApplied} — will apply it`);
     }
     if (details.length && f.running) details.push(`${D.running} — quit it before applying (the configuration is read at launch)`);

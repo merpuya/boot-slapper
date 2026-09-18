@@ -49,7 +49,8 @@ interface Facts {
   installed: boolean; version: string | null; versionOld: boolean; takeover: string | null; managedKeys: number; running: boolean;
   bundlePath: string; bundle: BundleDoc | null | "invalid";
   ours: OurEntry | null | "invalid"; adopted: { name: string } | null;
-  wanted: ReturnType<typeof wantedServers>; staleHelpers: string[]; current: ManagedServer[]; owned: string[]; merged: ManagedServer[]; serversCurrent: boolean;
+  /** `current` is every server named anywhere in the entry; `active` is the flat subset Desktop actually loads. */
+  wanted: ReturnType<typeof wantedServers>; staleHelpers: string[]; current: ManagedServer[]; active: ManagedServer[]; owned: string[]; merged: ManagedServer[]; serversCurrent: boolean;
 }
 
 async function facts(ctx: Ctx): Promise<Facts> {
@@ -68,8 +69,17 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const wanted = wantedServers(bundle && bundle !== "invalid" ? bundle : {}, o, env.os, env.home, account);
   const staleHelpers: string[] = [];
   for (const h of wanted.helpers) if ((await io.readFile(h.path)) !== h.body) staleHelpers.push(h.path);
-  // v2 nests them under mcp.managedServers; a v1 flat document (typical of a hand-authored entry) keeps managedMcpServers at the top level.
-  const current = (cfgGet(entryDoc, ["mcp", "managedServers"], "managedMcpServers") as ManagedServer[] | undefined) ?? [];
+  // Two different questions, and conflating them reported success on a box the app could not read (yogaNovo,
+  // 2026-09-18):
+  //   `current` — every server named anywhere in the entry. Reads the flat key the app honors *and* the nested
+  //     v2 block (a hand-authored entry, or one boot-slapper wrote pre-S4), so a foreign server is never dropped
+  //     and the app's normalized `oauth` object is never clobbered on rewrite.
+  //   `active`  — the servers Claude Desktop will actually load, which is the flat key alone (S4: a nested `mcp`
+  //     block is discarded wholesale, `mcpServerCount: 0`). Drift is judged against this. Judging it against
+  //     `current` reads a nested-only entry as satisfied and reports `present` while Desktop loads nothing.
+  const active = (entryDoc?.managedMcpServers as ManagedServer[] | undefined) ?? [];
+  const nested = (cfgGet(entryDoc, ["mcp", "managedServers"], "managedMcpServers") as ManagedServer[] | undefined) ?? [];
+  const current = [...active, ...nested.filter((s) => !active.some((a) => a.name === s.name))];
   const owned = (await readSidecar(io, env.os, env.home)).servers ?? [];
   const foreign = current.filter((s) => !owned.includes(s.name) && !wanted.servers.some((w) => w.name === s.name));
   // Keep the app's oauth object on a server we already wrote rather than putting `true` back over it.
@@ -80,7 +90,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
     versionOld: install.version !== null && !versionAtLeast(install.version, MIN_DESKTOP_VERSION),
     takeover: managedTakeover(sources), managedKeys: sources.reduce((n, s) => n + s.keys.length, 0),
     running: install.installed ? await desktopRunning(io, env.os) : false,
-    bundlePath, bundle, ours, adopted, wanted, staleHelpers, current, owned, merged, serversCurrent: sameServers(current, merged),
+    bundlePath, bundle, ours, adopted, wanted, staleHelpers, current, active, owned, merged, serversCurrent: sameServers(active, merged),
   };
 }
 
@@ -109,7 +119,9 @@ export const desktopMcp: Artifact = {
     if (f.ours === null && !f.adopted) details.unshift(`${D.entry} yet — desktop-inference creates it earlier in this run`);
     if (details.length && f.running) details.push(`${D.running} — quit it before applying (the configuration is read at launch)`);
     if (!details.length) return { kind: "present" };
-    return f.current.length ? { kind: "drifted", details } : { kind: "absent", details };
+    // `active`, not `current`: an entry whose only servers are in an ignored nested block is `absent` from
+    // Desktop's point of view, and saying "drifted" there implies a working configuration that needs adjusting.
+    return f.active.length ? { kind: "drifted", details } : { kind: "absent", details };
   },
 
   plan(_ctx, state) {
@@ -133,8 +145,10 @@ export const desktopMcp: Artifact = {
           const f = await facts(ctx);
           if (f.running) throw new Error(runningError(ID));
           if (!f.ours || f.ours === "invalid") throw new Error("no boot-slapper entry — desktop-inference must apply first");
-          const mcp = { ...((f.ours.doc.mcp as Record<string, unknown>) ?? {}), managedServers: f.merged };
-          await writeLibraryEntry(io, env.os, env.home, f.ours.id, { ...f.ours.doc, mcp });
+          // Flat `managedMcpServers`, per S4: Desktop 2.2553.0.0 discards a nested `mcp` block wholesale
+          // (`mcpServerCount: 0`). Item shapes are identical in v1 and v2 (S2, key definition @2982988), so
+          // only the location changes. `f.merged` already carries any foreign server found in either shape.
+          await writeLibraryEntry(io, env.os, env.home, f.ours.id, { ...f.ours.doc, managedMcpServers: f.merged });
           await writeSidecar(io, env.os, env.home, { servers: f.wanted.servers.map((x) => x.name) });
           ctx.emit({ type: "note", level: "info", message: `${ID}: wrote ${f.wanted.servers.length} managed server(s) (${f.wanted.servers.map((x) => x.name).join(", ")}) — relaunch Claude Desktop; Open Brain shows a Connect button until authorized (open-brain-auth)` });
           break;
@@ -153,7 +167,7 @@ export const desktopMcp: Artifact = {
     if (f.bundle === null || f.bundle === "invalid") { out.push({ id: "bundle", status: "error", message: `${f.bundlePath} missing or invalid` }); return out; }
     if (f.adopted) out.push({ id: "entry", status: "ok", message: `reading managed servers from the applied configuration '${f.adopted.name}' — not managed by boot-slapper, never edited` });
     for (const w of f.wanted.servers) {
-      const cur = f.current.find((s) => s.name === w.name);
+      const cur = f.active.find((s) => s.name === w.name);   // what Desktop loads, not what the entry mentions
       const fix = f.adopted ? `add it in the app (${IN_APP}) — the applied configuration '${f.adopted.name}' is not boot-slapper's` : `run bs onboard --only ${ID}`;
       out.push(cur && sameServer(cur, w) ? { id: `server.${w.name}`, status: "ok", message: `${w.name}: ${w.url} (${w.oauth ? "oauth" : "headers helper"})` } : { id: `server.${w.name}`, status: "error", message: `${w.name} missing or stale in the Claude Desktop configuration — ${fix}` });
       if (w.headersHelper) {

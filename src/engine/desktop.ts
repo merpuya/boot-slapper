@@ -244,7 +244,12 @@ export async function writeSidecar(io: Io, os: Os, home: string, patch: Partial<
   return next;
 }
 
-/** Read one setting from a library document in either accepted shape: nested v2 (`$schemaVersion: 2`) or flat v1 (documented key names). */
+/**
+ * Read one setting from a library document in either shape: nested v2 (`$schemaVersion: 2`) or flat v1 (the
+ * documented key names). Reading stays shape-agnostic, but boot-slapper only ever *writes* flat — S4
+ * (2026-09-18) found Desktop 2.2553.0.0 discards every nested key by name. Nested is still read because the
+ * bootstrap schema documents it and because boot-slapper wrote v2 itself before S4.
+ */
 export function cfgGet(doc: Record<string, unknown> | null, nested: string[], flat: string): unknown {
   if (!doc) return undefined;
   let cur: unknown = doc;

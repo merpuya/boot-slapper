@@ -65,7 +65,7 @@ describe("desktop-inference (darwin)", () => {
   it("our entry keeps keys other artifacts or the user put there; only the owned keys are rewritten; not-applied is a single step", async () => {
     const id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const other = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    const doc = { ...wantedDoc(opts, HELPER), mcp: { managedServers: [{ name: "mecp", transport: "http", url: "https://mecp/mcp" }] }, workspace: { autoModeEnabled: true } };
+    const doc = { ...wantedDoc(opts, HELPER), managedMcpServers: [{ name: "mecp", transport: "http", url: "https://mecp/mcp" }], workspace: { autoModeEnabled: true } };
     const { ctx, io } = await box({
       [`${L}/_meta.json`]: JSON.stringify({ appliedId: other, entries: [{ id: other, name: "Default" }, { id, name: ENTRY_NAME }] }),
       [`${L}/${id}.json`]: JSON.stringify(doc), [`${L}/${other}.json`]: "{}",
@@ -78,11 +78,52 @@ describe("desktop-inference (darwin)", () => {
     expect(JSON.parse(io.files.get(`${L}/_meta.json`)!).appliedId).toBe(id);
     expect(JSON.parse(io.files.get(`${L}/${id}.json`)!)).toEqual(doc);          // untouched: it already matched
     // now drift the owned keys
-    io.files.set(`${L}/${id}.json`, JSON.stringify({ ...doc, inference: { provider: "gateway", baseUrl: "https://old" } }));
+    io.files.set(`${L}/${id}.json`, JSON.stringify({ ...doc, inferenceGatewayBaseUrl: "https://old" }));
     const s2 = await desktopInference.detect(ctx);
-    expect(s2).toEqual({ kind: "drifted", details: [`${D.stale} — will rewrite the inference/models/telemetry keys`] });
+    expect(s2).toEqual({ kind: "drifted", details: [`${D.stale} — will rewrite the inference keys`] });
     await desktopInference.apply(ctx, desktopInference.plan(ctx, s2));
     expect(JSON.parse(io.files.get(`${L}/${id}.json`)!)).toEqual(doc);
+  });
+
+  // S4 (2026-09-18, yogaNovo, Desktop 2.2553.0.0): the app discarded every nested v2 key by name
+  // ("Ignoring local configuration value \"inference\": not a recognized configuration key") and reported
+  // mcpServerCount: 0. Pin the flat spellings so a nested shape cannot come back unnoticed.
+  it("writes flat v1 keys only — never the nested v2 shape the app ignores", () => {
+    const doc = wantedDoc(opts, HELPER);
+    expect(doc).toEqual({
+      inferenceProvider: "gateway",
+      inferenceGatewayBaseUrl: "https://api.ai.it.cornell.edu",
+      inferenceGatewayAuthScheme: "bearer",
+      inferenceCredentialKind: "helper-script",
+      inferenceCredentialHelper: HELPER,
+      inferenceCredentialHelperTtlSec: 3600,
+      modelDiscoveryEnabled: true,
+      disableNonessentialTelemetry: true,
+      disableNonessentialServices: true,
+    });
+    for (const k of ["$schemaVersion", "inference", "models", "telemetry", "mcp"]) expect(doc).not.toHaveProperty(k);
+    expect(wantedDoc({ ...opts, authScheme: "x-api-key" }, HELPER).inferenceGatewayAuthScheme).toBe("x-api-key");
+  });
+
+  // The entry on yogaNovo carried a v2 block boot-slapper itself wrote pre-S4, beside the app's flat keys.
+  // Rewriting must fix the flat keys and leave the dead nested block alone rather than trying to reconcile it.
+  it("an entry still carrying a pre-S4 nested block: flat keys are rewritten, the dead v2 block is left untouched", async () => {
+    const id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const dead = { $schemaVersion: 2, inference: { provider: "gateway", baseUrl: "https://old", credential: { kind: "helper-script", command: "/old" } } };
+    const { ctx, io } = await box({
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: id, entries: [{ id, name: ENTRY_NAME }] }),
+      [`${L}/${id}.json`]: JSON.stringify({ ...dead, inferenceProvider: "gateway", inferenceGatewayBaseUrl: "https://old" }),
+      [HELPER]: "stale",
+    });
+    secrets(io);
+    const s = await desktopInference.detect(ctx);
+    expect(s).toEqual({ kind: "drifted", details: [`${D.helper} — will write ${HELPER}`, `${D.stale} — will rewrite the inference keys`] });
+    await desktopInference.apply(ctx, desktopInference.plan(ctx, s));
+    const after = JSON.parse(io.files.get(`${L}/${id}.json`)!);
+    expect(after).toMatchObject(wantedDoc(opts, HELPER));   // flat keys corrected
+    expect(after.$schemaVersion).toBe(2);                   // the ignored block is not boot-slapper's to remove
+    expect(after.inference).toEqual(dead.inference);
+    expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
   });
 
   it("blocked: not installed, too old, or a managed source owns the configuration", async () => {
@@ -161,7 +202,7 @@ describe("desktop-inference (win32)", () => {
     expect(io.files.get(helper)).toContain("$c = $v.Retrieve('cornell-ai-gateway', 't')");
     const meta = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\_meta.json`)!);
     const doc = JSON.parse(io.files.get(`${lad}\\Claude-3p\\configLibrary\\${meta.appliedId}.json`)!);
-    expect(doc.inference.credential.command).toBe(helper);
+    expect(doc.inferenceCredentialHelper).toBe(helper);
     expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
   });
 });

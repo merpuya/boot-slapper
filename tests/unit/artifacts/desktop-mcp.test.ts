@@ -43,22 +43,68 @@ describe("desktop-mcp", () => {
     await desktopMcp.apply(ctx, steps);
     expect(io.modes.get(HELPER)).toBe(0o700);
     const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
-    expect(doc.mcp).toEqual({ managedServers: expectedServers });
-    expect(doc.inference).toEqual(wantedDoc({ baseUrl: "https://gw" }, INF).inference);
+    // Flat `managedMcpServers`, never nested `mcp` — S4: Desktop 2.2553.0.0 discards the nested block.
+    expect(doc.managedMcpServers).toEqual(expectedServers);
+    expect(doc).not.toHaveProperty("mcp");
+    expect(doc.inferenceCredentialHelper).toBe(INF);
     expect(JSON.parse(io.files.get("/h/.config/boot-slapper/desktop.json")!)).toEqual({ entryId: ID, servers: ["openbrain", "mecp"] });
     expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
     expect(JSON.stringify([...io.files.values(), ...events])).not.toContain("s3cr3t-val");
   });
 
   it("foreign managed servers in our entry are preserved; ours are updated in place; a removed bundle entry is dropped from ours only", async () => {
-    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), mcp: { managedServers: [{ name: "corp", transport: "http", url: "https://corp" }, { name: "mecp", transport: "http", url: "https://old/mcp", headersHelper: HELPER, headersHelperTtlSec: 3600 }] } };
+    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), managedMcpServers: [{ name: "corp", transport: "http", url: "https://corp" }, { name: "mecp", transport: "http", url: "https://old/mcp", headersHelper: HELPER, headersHelperTtlSec: 3600 }] };
     const { ctx, io } = await box({ "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID, servers: ["mecp", "gone"] }), [HELPER]: "stale" }, entry);
     secrets(io);
     const s = await desktopMcp.detect(ctx);
     expect(s.kind).toBe("drifted");
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s));
     const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
-    expect(doc.mcp.managedServers).toEqual([{ name: "corp", transport: "http", url: "https://corp" }, ...expectedServers]);
+    expect(doc.managedMcpServers).toEqual([{ name: "corp", transport: "http", url: "https://corp" }, ...expectedServers]);
+  });
+
+  // The pre-S4 migration case, and the one that matters on yogaNovo: our own entry still carries servers under the
+  // nested `mcp.managedServers` boot-slapper used to write. They are read (so a foreign one is not lost), rewritten
+  // flat where the app will see them, and the dead nested block is left alone — removing it is not ours to do.
+  it("our entry with pre-S4 nested servers: read from mcp.managedServers, rewritten flat, nested block left in place", async () => {
+    const nested = { managedServers: [{ name: "corp", transport: "http", url: "https://corp" }, expectedServers[1]] };
+    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), mcp: nested };
+    const { ctx, io } = await box({ "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID, servers: ["mecp"] }), [HELPER]: "stale" }, entry);
+    secrets(io);
+    const s = await desktopMcp.detect(ctx);
+    expect(s.kind).toBe("absent");   // nothing is in the flat key yet, so Desktop currently loads no servers
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s));
+    const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
+    // `corp` came from the nested block and is carried over rather than dropped — reading both shapes is what
+    // keeps a foreign server alive across the migration, even though only the flat key decides drift.
+    expect(doc.managedMcpServers).toEqual([{ name: "corp", transport: "http", url: "https://corp" }, ...expectedServers]);
+    expect(doc.mcp).toEqual(nested);   // untouched; the app ignores it
+    // Converges: the flat key must win over the stale nested one, or detect reads the old list forever and reports
+    // drift on every run. (`cfgGet`'s own precedence is the opposite — nested first — which is why facts() does not
+    // use it for this key.) Caught by this test while writing it.
+    expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+    expect(desktopMcp.plan(ctx, { kind: "present" })).toEqual([]);
+  });
+
+  // The state yogaNovo was actually left in on 2026-09-18: boot-slapper's own pre-S4 write put both servers under
+  // the nested block and nowhere else. Desktop loaded none of them (`mcpServerCount: 0`) while `bs plan` said
+  // `present`, because drift was judged against every server the entry *mentions* rather than the ones the app
+  // loads. Reporting green on a box the app cannot read is the worst available failure, so pin it.
+  it("nested-only servers are absent, not present: drift is judged by the flat key the app honors", async () => {
+    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), mcp: { managedServers: expectedServers } };
+    const { ctx, io } = await box({ "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID, servers: ["openbrain", "mecp"] }), [HELPER]: "stale" }, entry);
+    secrets(io);
+    const s = await desktopMcp.detect(ctx);
+    expect(s.kind).toBe("absent");   // not "drifted", and certainly not "present"
+    expect(s.details).toContain("managed MCP servers differ: openbrain, mecp — will write them into the boot-slapper entry");
+    // verify agrees: a server only in the ignored block is an error, not ok
+    const before = Object.fromEntries((await desktopMcp.verify(ctx)).map((x) => [x.id, x.status]));
+    expect(before["server.openbrain"]).toBe("error");
+    expect(before["server.mecp"]).toBe("error");
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s));
+    expect(JSON.parse(io.files.get(`${L}/${ID}.json`)!).managedMcpServers).toEqual(expectedServers);
+    expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+    expect((await desktopMcp.verify(ctx)).filter((x) => x.id.startsWith("server.")).map((x) => x.status)).toEqual(["ok", "ok"]);
   });
 
   it("blocked: Claude Desktop below the version floor, or a managed source owns the configuration; the default satisfied box is neither", async () => {
@@ -101,8 +147,8 @@ describe("desktop-mcp", () => {
     await desktopInference.apply(inf, desktopInference.plan(inf, infState));
     await desktopMcp.apply(mcp, desktopMcp.plan(mcp, mcpState));
     const meta = JSON.parse(fresh.io.files.get(`${L}/_meta.json`)!) as { appliedId: string };
-    const doc = JSON.parse(fresh.io.files.get(`${L}/${meta.appliedId}.json`)!) as { mcp: { managedServers: unknown[] } };
-    expect(doc.mcp.managedServers).toEqual(expectedServers);
+    const doc = JSON.parse(fresh.io.files.get(`${L}/${meta.appliedId}.json`)!) as { managedMcpServers: unknown[] };
+    expect(doc.managedMcpServers).toEqual(expectedServers);
     expect(await desktopMcp.detect(mcp)).toEqual({ kind: "present" });
   });
 
@@ -143,7 +189,7 @@ describe("desktop-mcp", () => {
     resetDesktopProbeCache(io);
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, await desktopMcp.detect(ctx)));
     const doc = JSON.parse(io.files.get(`${lib}\\${ID}.json`)!);
-    expect(doc.mcp.managedServers[1].headersHelper).toBe(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`);
+    expect(doc.managedMcpServers[1].headersHelper).toBe(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`);
     expect(io.files.get(`${home}\\.config\\boot-slapper\\desktop-mcp-mecp-headers.ps1`)).toContain("Retrieve('mecp-device-token'");
   });
   // Adopt path (CLAUDE.md follow-up): desktop-inference adopts a foreign applied gateway entry and never writes ours,
@@ -168,7 +214,7 @@ describe("desktop-mcp", () => {
     expect(c["helper.mecp"]).toMatchObject({ status: "error", message: expect.stringMatching(/once mecp is in the applied configuration/) });
     expect((s as { reason: string }).reason).toMatch(new RegExp(`headers helper.*${HELPER}`));
     // the foreign entry already carrying the servers satisfies the profile; only our headers helper (which that entry names) is still written
-    io.files.set(`${L}/${FID}.json`, JSON.stringify({ ...foreign, mcp: { managedServers: expectedServers } }));
+    io.files.set(`${L}/${FID}.json`, JSON.stringify({ ...foreign, managedMcpServers: expectedServers }));
     const s2 = await desktopMcp.detect(ctx);
     expect(s2).toEqual({ kind: "drifted", details: [`headers helper absent or stale: mecp — will write ${HELPER}`] });   // drifted: the applied entry already carries servers
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s2));
@@ -202,7 +248,7 @@ describe("desktop-mcp", () => {
   // and a rewrite of ours must not put `true` back over the app's object.
   it("an oauth entry the app normalized into an object is current, not stale; a rewrite keeps the app's object", async () => {
     const appForm = { mode: "dcr" };
-    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), mcp: { managedServers: [{ ...expectedServers[0], oauth: appForm }, expectedServers[1]] } };
+    const entry = { ...wantedDoc({ baseUrl: "https://gw" }, INF), managedMcpServers: [{ ...expectedServers[0], oauth: appForm }, expectedServers[1]] };
     const { ctx, io } = await box({ [HELPER]: "stale" }, entry); secrets(io);
     io.files.set("/h/.config/boot-slapper/desktop.json", JSON.stringify({ entryId: ID, servers: ["openbrain", "mecp"] }));
     const s = await desktopMcp.detect(ctx);
@@ -215,7 +261,7 @@ describe("desktop-mcp", () => {
     expect(s2.kind).toBe("drifted");
     await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s2));
     const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
-    expect(doc.mcp.managedServers.find((x: { name: string }) => x.name === "openbrain").oauth).toEqual(appForm);
-    expect(doc.mcp.managedServers.find((x: { name: string }) => x.name === "extra").oauth).toBe(true);
+    expect(doc.managedMcpServers.find((x: { name: string }) => x.name === "openbrain").oauth).toEqual(appForm);
+    expect(doc.managedMcpServers.find((x: { name: string }) => x.name === "extra").oauth).toBe(true);
   });
 });
