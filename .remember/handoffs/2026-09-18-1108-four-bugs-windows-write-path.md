@@ -112,15 +112,29 @@ The final entry is pure flat v1: `inferenceCredentialKind: "helper-script"`,
 `{ mode: "dcr" }` — boot-slapper wrote `true` and the app normalized it, which is exactly what
 `sameServer` (oauth by presence) exists to tolerate; a 2026-09-16 Mac rule now confirmed on Windows.
 
-**Still in the entry: `inferenceGatewayApiKey` in plaintext.** `merged()` only overwrites `OWNED`
-keys, deliberately, so boot-slapper never deletes what it did not write — but the old static key now
-sits beside the helper meant to replace it, and the app may still prefer it. Rotation is therefore no
-longer just hygiene: it is the only way to prove the helper is the live credential path.
+**The helper is confirmed live, not the leftover static key.** Desktop re-spawned
+`desktop-inference-credential.ps1` at 12:02:47, 14:49:28 and 18:52:35 — roughly the 3600 s TTL — which
+it would have no reason to do if it were reading `inferenceGatewayApiKey`. And the decisive evidence
+needed no log at all: a Claude Code session ran in Desktop's 3P mode against the Cornell gateway for
+hours afterwards. Inference through the `.ps1` helper is verified end-to-end.
+
+**Still in the entry: `inferenceGatewayApiKey` in plaintext.** `merged()` only overwrites `OWNED` keys,
+deliberately, so boot-slapper never deletes what it did not write. Rotation is ordinary hygiene for two
+plaintext copies (this entry and `claude_desktop_config.json`'s argv) — *not* a diagnostic, as the
+refresh cadence already settles which path is live. An earlier draft of this note claimed rotation was
+the only way to know; that was wrong.
+
+One `credential helper failed (reason=spawn-failed)` at 18:52:35 — a different class from the
+`non-zero-exit` failures fixed today: the process never started, and the app retried in the same second
+and carried on. n=1 across ~7 hours and three refreshes, so not chased. Noted because a cold
+`powershell` spawn is also the suspected cause of the `shims.test.ts` flake on this box, so a
+recurrence probably shares a cause and a fix.
 
 ## Open items / known follow-ups
-- **Rotate the gateway key** — now load-bearing, not just hygiene (see postscript). It is in the
-  config-library entry in plaintext *and* in `claude_desktop_config.json`'s `cornell_secure_tools` argv
-  (`--header x-litellm-api-key:Bearer sk-…`), visible to any process listing. Cornell-side action.
+- **Rotate the gateway key** — hygiene, not a diagnostic (see postscript). Two plaintext copies: the
+  config-library entry, and `claude_desktop_config.json`'s `cornell_secure_tools` argv
+  (`--header x-litellm-api-key:Bearer sk-…`), the latter visible to any process listing. Cornell-side
+  action.
 - **`~/.config/mecp/api_key` on this box appears to hold the MASTER MeCP key, not a device token.**
   Found while looking for an existing token to reuse. It is 39 chars with **no dots — not a JWT**,
   and `mecp/scripts/mint-device-token.ts` mints device tokens as JWTs (`createJwt("device",
