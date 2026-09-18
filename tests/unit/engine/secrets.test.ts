@@ -72,13 +72,36 @@ describe("PasswordVaultStore", () => {
   });
   it("set embeds the value in the stdin script with single quotes doubled", async () => {
     const io = new FakeIo({ platform: "win32" });
-    io.on((c) => c === "powershell", () => ({ code: 0, stdout: "", stderr: "" }));
+    io.on((c) => c === "powershell", () => ({ code: 0, stdout: "it's a secret\r\n", stderr: "" }));   // set reads back
     await new PasswordVaultStore(io).set(ref, "it's a secret");
     const call = io.calls[0];
     expect(call.opts.stdin).toContain("PasswordCredential('cornell-ai-gateway','aca34','it''s a secret')");
     expect(call.opts.stdin).toContain("$ErrorActionPreference = 'Stop'");
-    expect(call.opts.stdin).toMatch(/catch \{ exit 45 \}/);
     expect(JSON.stringify(call.args)).not.toContain("secret");
+  });
+
+  // Verified on yogaNovo 2026-09-18: PasswordVault commits asynchronously, and an `exit` reached through a `try`
+  // right after `Add` tore the process down before the commit landed — 5/5 deterministic losses, exit 0 every
+  // time, `set` reporting success and `get` then saying "missing". `desktop-inference` went on to write a
+  // credential helper against the resulting empty store and took inference down on a working box.
+  it("set puts nothing after Add that could cut the async commit short", async () => {
+    const io = new FakeIo({ platform: "win32" });
+    io.on((c) => c === "powershell", () => ({ code: 0, stdout: "v\r\n", stderr: "" }));
+    await new PasswordVaultStore(io).set(ref, "v");
+    const script = io.calls[0].opts.stdin as string;
+    const afterAdd = script.slice(script.indexOf("$v.Add("));
+    expect(afterAdd).not.toMatch(/\bexit\b/);          // the killer: exit after Add
+    expect(afterAdd.trimEnd()).toMatch(/\)\)\)$/);      // Add is the last statement in the script
+    // and Add is not inside a try block, whose closing brace would be the place an exit gets added back
+    expect(script.slice(0, script.indexOf("$v.Add("))).not.toMatch(/try \{\s*$/m);
+  });
+
+  // The old set trusted its own exit code, which is exactly why the loss was invisible for a day.
+  it("set reads the value back and fails loudly when the credential did not commit", async () => {
+    const io = new FakeIo({ platform: "win32" });
+    io.on((c) => c === "powershell", (c) => /\$v\.Add\(/.test(String(c.opts?.stdin ?? "")) ? { code: 0, stdout: "", stderr: "" } : { code: 44, stdout: "", stderr: "" });
+    await expect(new PasswordVaultStore(io).set(ref, "v")).rejects.toThrow(/reported success but .* not readable afterwards/);
+    expect(io.calls).toHaveLength(2);   // the add, then the read-back
   });
   it("get rejects a hostile account before any exec", async () => {
     const io = new FakeIo({ platform: "win32" });
