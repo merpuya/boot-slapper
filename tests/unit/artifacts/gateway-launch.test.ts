@@ -77,6 +77,38 @@ describe("gateway-launch (win32)", () => {
     expect(gatewayLaunch.plan(ctx, { kind: "present" })).toEqual([]);
   });
 
+  // yogaNovo 2026-09-18: the owner's daily shell is pwsh 7.6.6, whose $PROFILE is
+  // Documents\PowerShell\… while 5.1's is Documents\WindowsPowerShell\…. Probing only `powershell`
+  // wrote the line into 5.1's profile, verify reported ✓, and the wrapper looked installed while
+  // MECP_DEVICE_TOKEN was never exported — mecp would 401 in every Code session. Both editions'
+  // profiles must be written, and each reported separately.
+  it("both PowerShell editions get the line, and verify names each profile separately", async () => {
+    const home = "C:\\Users\\t";
+    const ps51 = `${home}\\OneDrive\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1`;
+    const ps7 = `${home}\\OneDrive\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1`;
+    const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t" }, files: { [`${home}\\.claude\\mcp\\gateway.json`]: bundle } });
+    io.on((c, a) => c === "powershell" && a.includes("$PROFILE"), () => ({ code: 0, stdout: `${ps51}\r\n`, stderr: "" }));
+    io.on((c, a) => c === "pwsh" && a.includes("$PROFILE"), () => ({ code: 0, stdout: `${ps7}\r\n`, stderr: "" }));
+    io.on((c) => c === "powershell", () => ({ code: 0, stdout: "tok\r\n", stderr: "" }));
+
+    const s = await gatewayLaunch.detect(ctx);
+    expect(s.details).toEqual(expect.arrayContaining([expect.stringContaining(ps51), expect.stringContaining(ps7)]));
+    await gatewayLaunch.apply(ctx, gatewayLaunch.plan(ctx, s));
+    const line = `. "$env:USERPROFILE\\.config\\boot-slapper\\claude-gw.ps1"  ${MARKER}\n`;
+    expect(io.files.get(ps51)).toBe(line);
+    expect(io.files.get(ps7)).toBe(line);
+    expect(await gatewayLaunch.detect(ctx)).toEqual({ kind: "present" });   // idempotent across both
+
+    // The regression: a line in only ONE profile must not read as satisfied.
+    io.files.delete(ps7);
+    const partial = await gatewayLaunch.detect(ctx);
+    expect(partial.kind).toBe("drifted");
+    expect(partial.details).toEqual([expect.stringContaining(ps7)]);
+    const checks = Object.fromEntries((await gatewayLaunch.verify(ctx)).map((c) => [c.id, c.status]));
+    expect(checks["shell-rc.WindowsPowerShell"]).toBe("ok");
+    expect(checks["shell-rc.PowerShell"]).toBe("error");   // used to be a single rolled-up ✓
+  });
+
   it("falls back to the Windows PowerShell 5.1 profile path when $PROFILE can't be probed (matches the shell this probe execs)", async () => {
     const home = "C:\\Users\\t";
     const { ctx, io } = await makeCtx({ opts, platform: "win32", home, env: { USERNAME: "t" }, files: { [`${home}\\.claude\\mcp\\gateway.json`]: bundle } });

@@ -25,7 +25,7 @@ function assertAllowedCall(call: { cmd: string; args: string[] }) {
   const { cmd, args } = call;
   if (cmd === "git") { const sub = args[0] === "-C" ? args[2] : args[0]; expect(["rev-parse", "status", "ls-remote", "--exec-path"]).toContain(sub); return; }
   if (cmd === "security") { expect(args[0]).toBe("find-generic-password"); return; }   // any service — the value is read in-process and never written
-  if (cmd === "powershell") return;      // read-only PasswordVault / $PROFILE / Get-AppxPackage probes
+  if (cmd === "powershell" || cmd === "pwsh") return;   // read-only PasswordVault / $PROFILE / Get-AppxPackage probes (both PS editions — gateway-launch asks each for its own $PROFILE)
   if (cmd === "ssh") return;             // BatchMode auth probe
   if (cmd === "node") { expect(args[0] === "--version" || (/dist[\\/]cli\.js$/.test(args[0]) && args[1] === "doctor")).toBe(true); return; }
   if (cmd === "bash") { expect(args[0]).toMatch(/sync-memory$/); expect(args.at(-1)).toBe("list"); return; }
