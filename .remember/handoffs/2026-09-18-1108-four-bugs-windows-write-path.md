@@ -130,6 +130,33 @@ and carried on. n=1 across ~7 hours and three refreshes, so not chased. Noted be
 `powershell` spawn is also the suspected cause of the `shims.test.ts` flake on this box, so a
 recurrence probably shares a cause and a fix.
 
+## Second postscript (22:22): MeCP connected on Windows; a fifth bug found and fixed
+
+A `--device yoga-novo --scope write` token was minted (locally — the master was already on the box),
+stored via `bs secrets set mecp-device-token`, and Desktop picked it up **on its own retry cycle, no
+relaunch**:
+
+    22:22:46 [custom3p-mcp-headers] running helper { helperPath: '…desktop-mcp-mecp-headers.ps1', args: [] }
+    22:22:47 [custom3p-mcp-headers] resolved { server: 'mecp', headerNames: [ 'Authorization' ] }
+    22:22:47 [custom3p-mcp] server connected { name: 'mecp', toolCount: 97, hostPid: 22252 }
+
+**97 tools — the same count as the Mac (CLAUDE.md, JCB-AL-ACA34 2026-09-16)**, which settles the scope
+question empirically: had `applyReadOnlyToolFilter` run, the count would be lower. So write-scoped
+device tokens are genuinely write-capable and no master key is needed on a device. The `headersHelper`
+path is now proven on Windows with a live credential — the last thing the Mac had that Windows did not.
+`desktop-mcp` verify is fully green (both servers, helper current, token present), and the **Desktop
+half of `open-brain-auth` turned ✓ unprompted**; only the Claude Code grant is outstanding.
+
+**A fifth bug surfaced on the way (`f9c2cb6`): `bs secrets set` showed no prompt on Windows.** `ask()`
+in `src/ui/prompt.ts` passed `""` as readline's prompt when hiding the answer and wrote the prompt by
+hand; readline then redrew an empty line over it (`ESC[1G ESC[0J` — cursor to column 1, erase to end of
+screen). Most terminals raced and usually showed the text; PowerShell erased it every time, so the
+command sat at a blank line looking like it had exited. Readline now owns the prompt string, and
+`ttyPrompter` takes injectable streams — which is *why* this shipped in the first place: it hardcoded
+`process.stdin`/`stdout`, so only `headlessPrompter` had coverage. Three new tests against a fake tty,
+verified by reverting the fix on a scratch copy and watching them fail. **This retires the
+`_writeToOutput` guard** from the deferred Phase 1 cleanups, where it had sat since Phase 2.
+
 ## Open items / known follow-ups
 - **Rotate the gateway key — deliberately deferred by the owner 2026-09-18, not forgotten.** Hygiene,
   not a diagnostic (see postscript): two plaintext copies, the config-library entry and
@@ -195,12 +222,19 @@ recurrence probably shares a cause and a fix.
 **Fetch first.** Gate 2's Windows leg is closed (see postscript), so the next moves are the two
 credential items, in this order:
 
-1. **The suspected master key on this box** — confirm and replace with a `--scope write` device token
-   (which is fully write-capable; see the follow-up above). It is the only item here with a security
-   dimension, it is six weeks old, and it is also what unblocks `mecp` on both surfaces. Minting can
-   happen on this box, since the master is already here.
-2. ~~Rotate the Cornell gateway key~~ — **deferred by the owner 2026-09-18.** Still worth doing
+1. **Drain the two MeCP staging blocks** (S3's and S4's). MeCP tools are now live in Desktop's Chat and
+   Cowork surfaces, so this is finally doable from *that* surface — the Code session where all this work
+   happened has no MeCP tools wired in, which is why it could not be done here. The entries are listed
+   below and include a correction that invalidates earlier Windows secret-store findings; the longer it
+   sits, the more likely something reasons from the bad data.
+2. **Replace the suspected master key in `~/.config/mecp/api_key`.** A write-scoped device token now
+   exists in the vault and is proven working (97 tools), so the remaining task is narrower than it was:
+   install that token over the file, decide whether the master needs rotating after six weeks on a
+   personal laptop, and add a shape check so a non-JWT value there is visible rather than silent.
+3. ~~Rotate the Cornell gateway key~~ — **deferred by the owner 2026-09-18.** Still worth doing
    eventually; nothing depends on it.
+4. `open-brain-auth`: the Desktop grant is ✓; the Claude Code grant is a one-time `/mcp → openbrain →
+   Authenticate`.
 
 Then, on a MeCP-connected box, drain the two staging blocks. They are the only unrecorded output of the
 last three sessions, and one is a correction that invalidates earlier Windows findings — the longer it
