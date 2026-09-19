@@ -3,6 +3,8 @@ import { secrets } from "../../../src/artifacts/secrets.ts";
 import { makeCtx } from "../helpers.ts";
 
 const opts = { services: ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key"] };
+const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJraW5kIjoiZGV2aWNlIn0.c2lnbmF0dXJl";
+const MASTER_LIKE = "sk-not-a-jwt-39-chars-long-abcdefghij123";
 
 describe("secrets", () => {
   it("is absent with one interactive step per missing secret, naming the location not the value", async () => {
@@ -38,11 +40,26 @@ describe("secrets", () => {
   });
 
   it("verify: gateway missing is an error, the others warn, present ones are ok", async () => {
-    const { ctx, io } = await makeCtx({ opts, env: { USER: "aca34" }, files: { "/h/.config/mecp/api_key": "k\n" } });
-    io.on((c, a) => c === "security" && a.includes("mecp-device-token"), () => ({ code: 0, stdout: "tok\n", stderr: "" }));
+    const { ctx, io } = await makeCtx({ opts, env: { USER: "aca34" }, files: { "/h/.config/mecp/api_key": `${JWT}\n` } });
+    io.on((c, a) => c === "security" && a.includes("mecp-device-token"), () => ({ code: 0, stdout: `${JWT}\n`, stderr: "" }));
     io.on((c) => c === "security", () => ({ code: 44, stdout: "", stderr: "" }));
     expect((await secrets.verify(ctx)).map((c) => [c.id, c.status])).toEqual([
       ["cornell-ai-gateway", "error"], ["mecp-device-token", "ok"], ["mecp-api-key", "ok"],
     ]);
+  });
+
+  // The case that was invisible for six weeks: a master key in the device-token slot authenticates,
+  // so every presence check passed. Both MeCP services warn; the gateway key has no documented shape
+  // and must stay ok rather than invent one.
+  it("verify: a present-but-non-JWT MeCP credential warns instead of reporting ok", async () => {
+    const { ctx, io } = await makeCtx({ opts, env: { USER: "aca34" }, files: { "/h/.config/mecp/api_key": `${MASTER_LIKE}\n` } });
+    io.on((c, a) => c === "security" && a.includes("mecp-device-token"), () => ({ code: 0, stdout: `${MASTER_LIKE}\n`, stderr: "" }));
+    io.on((c) => c === "security", () => ({ code: 0, stdout: "sk-live-whatever\n", stderr: "" }));
+    const checks = await secrets.verify(ctx);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([
+      ["cornell-ai-gateway", "ok"], ["mecp-device-token", "warn"], ["mecp-api-key", "warn"],
+    ]);
+    expect(checks.find((c) => c.id === "mecp-api-key")?.message).toMatch(/present but suspect/);
+    expect(JSON.stringify(checks)).not.toContain(MASTER_LIKE);
   });
 });

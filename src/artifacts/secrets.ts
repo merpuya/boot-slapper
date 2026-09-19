@@ -1,4 +1,5 @@
 import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifact.ts";
+import { checkShape } from "../engine/secrets/shape.ts";
 import { defaultAccount, type SecretRef, type SecretService } from "../engine/secrets/store.ts";
 
 export const SECRET_LABELS: Record<SecretService, string> = {
@@ -56,10 +57,18 @@ export const secrets: Artifact = {
   async verify(ctx): Promise<Check[]> {
     const out: Check[] = [];
     for (const ref of refs(ctx)) {
-      const present = (await ctx.secrets.get(ref)) !== null;
-      out.push(present
-        ? { id: ref.service, status: "ok", message: `${ref.service} present (${ctx.secrets.describe(ref)})` }
-        : { id: ref.service, status: SECRET_SEVERITY[ref.service], message: `${ref.service} missing — bs secrets set ${ref.service}  (${ctx.secrets.describe(ref)})` });
+      const value = await ctx.secrets.get(ref);
+      if (value === null) {
+        out.push({ id: ref.service, status: SECRET_SEVERITY[ref.service], message: `${ref.service} missing — bs secrets set ${ref.service}  (${ctx.secrets.describe(ref)})` });
+        continue;
+      }
+      // Present is not the same as right. A wrong-but-working credential reports ok forever
+      // otherwise — "present" was true and useless for six weeks on yogaNovo. warn, never error:
+      // the value authenticates, so this is hygiene, and an error would fail a working box.
+      const shape = checkShape(ref.service, value);
+      out.push(shape && !shape.ok
+        ? { id: ref.service, status: "warn", message: `${ref.service} present but suspect — ${shape.reason}  (${ctx.secrets.describe(ref)})` }
+        : { id: ref.service, status: "ok", message: `${ref.service} present (${ctx.secrets.describe(ref)})` });
     }
     return out;
   },

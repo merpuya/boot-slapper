@@ -9,6 +9,7 @@ import type { EngineEvent } from "./engine/events.ts";
 import { RealIo, type Io } from "./engine/io.ts";
 import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
+import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { aca34 } from "./profiles/aca34.ts";
 import { doctorSummary, headlessReporter, renderChecksText, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
@@ -121,9 +122,16 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       const ctx = await ctxFor(io, profile ?? aca34, interactive, () => {});
       const ref = { service: svc as SecretService, account: defaultAccount(io) };
       if (op === "check") {
-        const present = (await ctx.secrets.get(ref)) !== null;
-        stdout.write(`${svc}: ${present ? "present" : "missing"} (${ctx.secrets.describe(ref)})`);
-        return present ? 0 : 1;
+        const value = await ctx.secrets.get(ref);
+        if (value === null) { stdout.write(`${svc}: missing (${ctx.secrets.describe(ref)})`); return 1; }
+        // Exit stays 0 on a suspect value: it is present and it works. Saying otherwise would make
+        // this command disagree with the SessionStart hook, which warns and carries on for the same
+        // reason (dotclaude 7647d17). The warning is for the human; the exit code answers "is a
+        // usable credential here", which it is.
+        const shape = checkShape(svc as SecretService, value);
+        stdout.write(`${svc}: present (${ctx.secrets.describe(ref)})`);
+        if (shape && !shape.ok) stdout.write(`  warning: ${shape.reason}`);
+        return 0;
       }
       let value: string;
       try { value = (await ctx.prompt.secret(`Paste ${svc}`)).trim(); }

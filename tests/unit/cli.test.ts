@@ -43,6 +43,23 @@ describe("bs cli", () => {
     expect(await main(["secrets", "check", "cornell-ai-gateway"], { io, stdout: out, stderr: sink() })).toBe(1);
     expect(out.lines[0]).toBe("cornell-ai-gateway: missing (login Keychain item service=cornell-ai-gateway account=aca34)");
   });
+  it("secrets check warns on a present-but-non-JWT MeCP key, still exit 0", async () => {
+    const out = sink();
+    const io = new FakeIo({ env: { USER: "aca34" }, files: { "/h/.config/mecp/api_key": "sk-not-a-jwt-39-chars-long-abcdefghij123\n" } });
+    // Exit 0 is deliberate: the credential is present and works. The warning is for the human, and
+    // the exit code answers "is a usable credential here" — same contract as the SessionStart hook.
+    expect(await main(["secrets", "check", "mecp-api-key"], { io, stdout: out, stderr: sink() })).toBe(0);
+    expect(out.lines[0]).toMatch(/^mecp-api-key: present \(file /);
+    expect(out.lines[1]).toMatch(/warning: not JWT-shaped/);
+    expect(out.lines.join("\n")).not.toContain("sk-not-a-jwt");
+  });
+  it("secrets check stays quiet about shape when the key is a JWT", async () => {
+    const out = sink();
+    const io = new FakeIo({ env: { USER: "aca34" }, files: { "/h/.config/mecp/api_key": "eyJhbGciOiJIUzI1NiJ9.eyJraW5kIjoiZGV2aWNlIn0.c2lnbmF0dXJl\n" } });
+    expect(await main(["secrets", "check", "mecp-api-key"], { io, stdout: out, stderr: sink() })).toBe(0);
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).toMatch(/^mecp-api-key: present \(file /);
+  });
   it("unknown profile prints usage on stderr and exits 2", async () => {
     const err = sink();
     expect(await main(["plan", "--profile", "nope"], { io: new FakeIo(), stdout: sink(), stderr: err })).toBe(2);
