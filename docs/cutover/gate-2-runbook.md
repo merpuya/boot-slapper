@@ -21,6 +21,20 @@ both; memory-sync round-trip verified from each. Until then nothing below is app
 > sign in to third-party mode and open Cowork once before expecting the configLibrary write path, the `.ps1` helper spawn,
 > or v2-entry survival to close. Picking this box is a decision about where to prove Windows, not a result.
 
+## Status — 2026-09-19
+
+Neither leg meets the condition block yet. What is and is not recorded:
+
+| Leg | `bs onboard` | `bs doctor` (whole box) | evidence file (step 4) | memory round-trip (step 5) |
+|---|---|---|---|---|
+| `yogaNovo` (Windows) | three desktop artifacts `present` 2026-09-18 (handoff `2026-09-18-1108`) | per-artifact greens only; no whole-box run recorded | none — `docs/evidence/` has never existed in this repo | not run |
+| macOS | **the "new Mac" of spec §6 has not arrived.** JCB-AL-ACA34 (gate-1 box, adopt route) is `warn` with zero errors as of 2026-09-19 after `bs onboard --only gateway-launch`; the fresh-entry route is unproven on macOS | `warn` here: `mct-sync-token` missing, `mct` sync watermark behind, no Code-side Open Brain grant, 14 unmapped memory dirs, untracked `~/.claude/skills/synced/`, and the expected `legacy-wrapper` warn | kept out of the repo on purpose — this box is not the gate box (JSON in the session scratchpad only) | not run |
+
+Next yogaNovo session, in order: whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against this
+Mac (boot-slapper's own memory dir is *not* mapped here, so pick a mapped project or map it first). The macOS leg waits on
+the second Mac unless the owner decides JCB-AL-ACA34 stands in — a decision, not a finding, and it would leave the
+fresh-entry writer verified on one OS only.
+
 ## On each new box
 
 1. Fresh-box shim: macOS `curl -fsSL https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.sh | bash`, Windows
