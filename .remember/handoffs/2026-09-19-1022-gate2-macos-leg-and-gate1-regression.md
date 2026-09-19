@@ -48,3 +48,13 @@
 Check the hostname. On `yogaNovo`: the three unrecorded Windows-leg items above, in order — that is the whole remaining Windows work, and the round-trip's pull half is already waiting on the sync remote. On this Mac: nothing is pending beyond the two owner-only items; `bs doctor` should read `warn` with zero errors. Gate 2 as a whole still waits on the second Mac, and the runbook Status table is now the place that says so.
 
 **Method note this session earned.** Two "green" claims were one observation deep: CLAUDE.md's "gate-2 leg closed" meant three artifacts, not the runbook's condition, and the bash doctor's hooks check had been red since the applier changed shape on 2026-09-06 without anyone running parity between then and now. Parity only catches what it is run against; a gate test that is not in CI is a gate that closes by hand.
+
+## Postscript (same day, 11:20–12:10 EDT)
+
+Three of the "open items" above closed within two hours, none by code:
+
+- **The DNS stall cleared on its own** at about 11:22 with the resolver config byte-for-byte unchanged (same Cornell nameservers, same `en18`), so the cause was upstream of this box. `mct sync` then pushed 548 events and `mct scan` brought the watermark current; all five network-dependent `mct doctor` checks read ok. The auto-memory note was reworded from "blocks" to "stalled once, cleared on its own".
+- **The Code-side Open Brain grant landed** — but not from this session. A plain `claude` session's `/mcp` has no `openbrain` entry; that server lives only in the launch-scoped `~/.claude/mcp/gateway.json`, which the `claude-gw` wrapper passes with `--mcp-config`. The owner ran `claude-gw` in a fresh terminal (the boot-slapper wrapper's first real use since this morning's onboard), authenticated there, and `open-brain-auth` turned fully green. The doctor's hint text does not say this; follow-up filed in CLAUDE.md.
+- **`mct-sync-token` is in the Keychain** without minting: the box was already activated, so the existing device token in `~/.mct/config.json` was copied in via `bs secrets set` at the hidden prompt (clipboard, then cleared). Minting would have left two diverged live tokens, because the `mct` artifact only seeds config on an unactivated box. The admin token stays for boxes that are not activated yet.
+
+`bs doctor` on this Mac now: 68 of 71 ok, zero errors, three warns (mct attribution hygiene, 14 unmapped memory dirs, the expected `legacy-wrapper`). MeCP `phase-3-desktop-cutover` carries the same closure in `macos_2026_09_19`.
