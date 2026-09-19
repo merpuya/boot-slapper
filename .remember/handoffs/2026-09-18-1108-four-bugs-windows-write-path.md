@@ -1,4 +1,8 @@
-# Handoff: four bugs between boot-slapper and a working Windows 3P box
+# Handoff: six bugs between boot-slapper and a working Windows 3P box
+
+> Titled "four" when first written; two more surfaced the same session while using what had just been
+> built. See the three postscripts — gate 2's Windows leg is **closed**, and all three desktop artifacts
+> plus `mecp` (97 tools) are verified on Windows for the first time.
 
 **Session date:** 2026-09-18
 **Author:** merpuya via Claude
@@ -157,6 +161,38 @@ command sat at a blank line looking like it had exited. Readline now owns the pr
 verified by reverting the fix on a scratch copy and watching them fail. **This retires the
 `_writeToOutput` guard** from the deferred Phase 1 cleanups, where it had sat since Phase 2.
 
+## Third postscript: the Code surface, and a sixth bug — six total, three of them false greens
+
+Two more commits after the second postscript, both found by trying to use what had just been built:
+
+- **`f9c2cb6` — `bs secrets set` showed no prompt on Windows** (described in the second postscript).
+- **`c6075fa` — `gateway-launch` wrote to a profile the owner's shell never reads.** Windows PowerShell
+  5.1 and PowerShell 7 do not share a profile (`Documents\WindowsPowerShell\…` vs
+  `Documents\PowerShell\…`), and `layout` probed `$PROFILE` by exec'ing `powershell` only. The owner runs
+  **pwsh 7.6.6**, so the source line landed in 5.1's profile — and `verify` reported a single rolled-up
+  ✓, so the wrapper looked installed while `MECP_DEVICE_TOKEN` was never exported and `mecp` would 401 in
+  every Code session. The old probe's own comment called this "a gate-2 question"; this is gate 2, and it
+  bit within minutes of the onboard. `psProfiles` now asks *each* installed edition for its own
+  `$PROFILE` — asking rather than composing the path, so the OneDrive-redirected Documents folder is
+  honored — and `verify` emits one check per profile (`shell-rc.WindowsPowerShell` /
+  `shell-rc.PowerShell`). Applied live: both profiles ✓, `claude-gw` defined in a fresh pwsh 7 shell.
+
+**So six bugs, not four — and the three most interesting share one shape: they reported success while
+the consuming system saw nothing.** `desktop-mcp` said `present` on servers Desktop discarded
+(`mcpServerCount: 0`); `PasswordVault.set` returned success after committing nothing; `gateway-launch`
+said ✓ on a profile the shell ignores. Each check verified *boot-slapper's action* rather than the
+*effect* on Desktop, the vault, or the shell. Written up as auto-memory
+`verify-the-effect-not-the-artifact`; the two heuristics that would have caught all three are (1) a
+check performed in the same process or config shape as the write is probably tautological, and (2) one
+check summarising several targets averages a partial failure to green.
+
+**MeCP is still unreachable from here, and that is structural rather than a fault:** a Code session
+hosted inside Claude Desktop has no `mecp` tools, because Desktop's `managedMcpServers` serve its own
+Chat/Cowork surfaces while Claude Code reads `~/.claude/mcp/gateway.json` and needs
+`MECP_DEVICE_TOKEN` from the environment. `/reload-plugins` does not reconnect MCP servers. As of
+`c6075fa` the wrapper is in place, so a session launched with `claude-gw` from pwsh will have it —
+which is what the staging blocks need.
+
 ## Open items / known follow-ups
 - **Rotate the gateway key — deliberately deferred by the owner 2026-09-18, not forgotten.** Hygiene,
   not a diagnostic (see postscript): two plaintext copies, the config-library entry and
@@ -222,11 +258,16 @@ verified by reverting the fix on a scratch copy and watching them fail. **This r
 **Fetch first.** Gate 2's Windows leg is closed (see postscript), so the next moves are the two
 credential items, in this order:
 
-1. **Drain the two MeCP staging blocks** (S3's and S4's). MeCP tools are now live in Desktop's Chat and
-   Cowork surfaces, so this is finally doable from *that* surface — the Code session where all this work
-   happened has no MeCP tools wired in, which is why it could not be done here. The entries are listed
-   below and include a correction that invalidates earlier Windows secret-store findings; the longer it
-   sits, the more likely something reasons from the bad data.
+1. **Drain the two MeCP staging blocks** (S3's and S4's) — now three sessions of debt, and the item most
+   worth landing because one entry is a correction that invalidates earlier Windows secret-store
+   findings. Two surfaces can do it as of `c6075fa`: Desktop's Chat/Cowork (MeCP live there, 97 tools),
+   or a Code session launched with **`claude-gw`** from pwsh, which now gets `MECP_DEVICE_TOKEN`. The
+   session where this work happened could not — see the third postscript.
+   Also worth adding while there: a work item for the sixth bug (`c6075fa`, the two PowerShell profiles)
+   and the `verify-the-effect-not-the-artifact` observation, plus two Open Brain thoughts this `/save`
+   could not capture — the false-green design rule, and "claims inferred from docs should carry a marker
+   that decays until exercised against a real box" (the v2 schema and the `.ps1` table were both held
+   confidently for a week; two of three such claims were wrong).
 2. **Replace the suspected master key in `~/.config/mecp/api_key`.** A write-scoped device token now
    exists in the vault and is proven working (97 tools), so the remaining task is narrower than it was:
    install that token over the file, decide whether the master needs rotating after six weeks on a
