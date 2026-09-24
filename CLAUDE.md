@@ -33,7 +33,7 @@ Spikes: `docs/spikes/` — S1/S2 (2026-09-10) settle where the Phase 3 desktop a
 ## Known follow-ups
 
 - Deferred engine cleanups (Phase 1 roadmap item 7, minus what Phase 2 landed): tests typecheck, non-44 Keychain exit codes, `doctor --json` redaction, `homeRel` boundary check, gateway-launch `.bak` before regenerating — see the Phase 2 plan, "Deviations" §4. (`State.facts` and `BS_REQUIRE_PARITY=1` dropped 2026-09-19: both return zero hits under `src/`, so they shipped or were renamed. Absence is weak evidence — re-add if the Phase 2 plan still names them.) (**`_writeToOutput` guard is done, 2026-09-18** — it bit for real: `bs secrets set` sat at a blank line on Windows.)
-- `desktop-inference` never writes `disableDeploymentModeChooser`; the owner keeps the claude.ai option on this Mac. A gateway-only box may want it `true` — profile option to add when the second Mac arrives.
+- `desktop-inference` never writes `disableDeploymentModeChooser`; the owner keeps the claude.ai option on JCB-AL-ACA34. The second Mac (`mac-studio`) has arrived and is on the gateway; decide whether it is gateway-only and, if so, add the profile option that sets it `true` there.
 - `MIN_DESKTOP_VERSION` is `1.19367.0`, but S2 records the `managedMcpServers` 3P scope as ≥`1.2581.0` — a different threshold, and these version strings do not order the way semver suggests. Nothing is blocked today (`2.2553.0` clears both), so the floor may simply be checking the wrong thing. Noted in S4, not chased.
 - `bs capture` reads bundle files as UTF-8 text; extend `Io.readFile` to bytes if dotclaude ever tracks a binary.
 - Interactive `project-memory` re-offers a guessed-but-declined memory dir on every run; map it by hand (or accept) to silence it.
