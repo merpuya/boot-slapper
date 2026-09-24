@@ -57,6 +57,18 @@ function merged(existing: Record<string, unknown>, wanted: Record<string, unknow
   for (const k of OWNED) out[k] = wanted[k];
   return out;
 }
+/**
+ * Owned keys the app's in-app apply drops because its form model does not carry them (mac-studio, 2026-09-24,
+ * Desktop 2.7032.0: *Apply Changes* re-serialized our fresh entry, added its default keys, normalized `oauth`, and
+ * removed exactly these two — inference kept working through the helper). Their absence therefore means the app
+ * default, and it is compared as such. `merged` still writes them; the app removing them again is not drift.
+ * Same rule as `desktop-mcp`'s `sameServer`: we own the fact, the app owns the spelling.
+ */
+const APP_DEFAULTED: Readonly<Record<string, unknown>> = { inferenceGatewayAuthScheme: "bearer", inferenceCredentialHelperTtlSec: 3600 };
+/** Does `doc` carry every owned fact `wanted` asks for, reading an app-dropped key as the app default? */
+export function docSatisfies(doc: Record<string, unknown>, wanted: Record<string, unknown>): boolean {
+  return OWNED.every((k) => deepEqual(k in doc ? doc[k] : APP_DEFAULTED[k], wanted[k]));
+}
 
 interface Facts {
   install: DesktopInstall; versionOld: boolean; takeover: string | null; managedKeys: number; running: boolean;
@@ -78,7 +90,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const wanted = wantedDoc(o, helper);
   const ours = install.installed ? await ourEntry(io, env.os, env.home) : null;
   const adopted = install.installed ? adoptedEntry(await appliedEntry(io, env.os, env.home), o.baseUrl) : null;
-  const docCurrent = ours !== null && ours !== "invalid" && deepEqual(merged(ours.doc, wanted), ours.doc);
+  const docCurrent = ours !== null && ours !== "invalid" && docSatisfies(ours.doc, wanted);
   const haveSecret = (await ctx.secrets.get({ service: SECRET, account })) !== null;   // in-process read; the value is never kept
   // What the applied entry currently authenticates with, if it is not already our helper. Replacing a working
   // static key with a helper that cannot resolve takes inference down (yogaNovo, 2026-09-18) — the credential the

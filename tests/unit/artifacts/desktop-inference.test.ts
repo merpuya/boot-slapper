@@ -35,6 +35,31 @@ describe("desktop-inference (darwin)", () => {
     expect(leak(io, events)).toBe(false);
   });
 
+  // mac-studio, 2026-09-24 (Desktop 2.7032.0, first fresh-entry box on macOS): applying the configuration inside the
+  // app re-serialized our entry from its form model — added `autoModeEnabled`, `chatTabEnabled`, `isDesktopExtensionEnabled`,
+  // `modelPrefer1mContext`, `inferenceModelPricingEnabled`, `disableEssentialTelemetry`, normalized `oauth` — and DROPPED
+  // `inferenceGatewayAuthScheme` and `inferenceCredentialHelperTtlSec`, keys the form does not carry. Inference kept working
+  // (helper ran, 14 models discovered), so their absence is the app default, i.e. what we asked for. Insisting on them
+  // would make every in-app apply "drift" and every onboard a rewrite the app undoes: a flap, not a finding.
+  it("an entry the app re-serialized on in-app apply is current; a changed base URL or auth scheme still drifts", async () => {
+    const { ctx, io } = await box(); secrets(io);
+    await desktopInference.apply(ctx, desktopInference.plan(ctx, await desktopInference.detect(ctx)));
+    const id = JSON.parse(io.files.get(`${L}/_meta.json`)!).appliedId as string;
+    const { inferenceGatewayAuthScheme: _a, inferenceCredentialHelperTtlSec: _t, ...kept } = wantedDoc(opts, HELPER);
+    const appForm = { ...kept, autoModeEnabled: true, chatTabEnabled: true, isDesktopExtensionEnabled: true, modelPrefer1mContext: true, inferenceModelPricingEnabled: true, disableEssentialTelemetry: true };
+    io.files.set(`${L}/${id}.json`, JSON.stringify(appForm));
+    expect(await desktopInference.detect(ctx)).toEqual({ kind: "present" });
+    expect((await desktopInference.verify(ctx)).find((c) => c.id === "entry")).toMatchObject({ status: "ok" });
+    // a real change to an owned fact is still drift
+    io.files.set(`${L}/${id}.json`, JSON.stringify({ ...appForm, inferenceGatewayBaseUrl: "https://elsewhere.example" }));
+    expect(await desktopInference.detect(ctx)).toMatchObject({ kind: "drifted", details: [expect.stringMatching(/^boot-slapper entry differs/)] });
+    // and an absent auth scheme only counts as current when bearer is what the profile wants
+    io.files.set(`${L}/${id}.json`, JSON.stringify(appForm));
+    const basic = await makeCtx({ opts: { ...opts, authScheme: "basic" }, env: { USER: "aca34" }, dirs: [APP], files: Object.fromEntries(io.files) });
+    secrets(basic.io);
+    expect((await desktopInference.detect(basic.ctx)).kind).toBe("drifted");
+  });
+
   it("a foreign applied entry that already satisfies the profile is adopted read-only", async () => {
     const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const { ctx, io } = await box({
