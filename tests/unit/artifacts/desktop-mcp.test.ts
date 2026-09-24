@@ -34,6 +34,41 @@ describe("desktop-mcp", () => {
     expect(odd.servers).toEqual([{ name: "c", transport: "sse", url: "https://c", oauth: true }]);
   });
 
+  // Cornell's secure-tools connector (KB article 9077) authenticates with `x-litellm-api-key`, not `Authorization`.
+  // Probed 2026-09-24 from mac-studio: the gateway's /mcp/ answers a direct streamable-HTTP initialize with that
+  // header (200; 401 without), so no mcp-remote bridge is needed and the same bundle entry serves both surfaces.
+  // A headers helper prints a flat JSON object, so the header name is the helper's business, not the app's.
+  it("a ${VAR} placeholder on any header name becomes a headers helper for that header; an unmapped placeholder is skipped, not OAuth", async () => {
+    const tokens = { ...opts.tokens, ANTHROPIC_AUTH_TOKEN: "cornell-ai-gateway" as const };
+    const cornell = { cornell_secure_tools: { type: "http", url: "https://api.ai.it.cornell.edu/mcp/", headers: { "x-litellm-api-key": "Bearer ${ANTHROPIC_AUTH_TOKEN}" } } };
+    const path = "/h/.config/boot-slapper/desktop-mcp-cornell_secure_tools-headers.sh";
+    const w = wantedServers({ mcpServers: cornell }, { ...opts, tokens }, "darwin", "/h");
+    expect(w.servers).toEqual([{ name: "cornell_secure_tools", transport: "http", url: "https://api.ai.it.cornell.edu/mcp/", headersHelper: path, headersHelperTtlSec: 3600 }]);
+    expect(w.helpers).toEqual([{ path, body: expect.stringContaining("cornell-ai-gateway") }]);
+    expect(w.helpers[0].body).toContain("'x-litellm-api-key' 'Bearer '");   // header name and prefix reach the helper verbatim
+    expect(w.helpers[0].body).not.toContain("Authorization");
+    expect(wantedServers({ mcpServers: cornell }, { ...opts, tokens }, "win32", "C:\\Users\\a").helpers[0].body).toContain('{"x-litellm-api-key":"Bearer ');
+    // the same server on a profile that does not map the variable: skipped with the variable named, never silently OAuth
+    const un = wantedServers({ mcpServers: cornell }, opts, "darwin", "/h");
+    expect(un.servers).toEqual([]);
+    expect(un.skipped).toEqual([expect.stringMatching(/cornell_secure_tools.*ANTHROPIC_AUTH_TOKEN/)]);
+    // end to end: the third server is written beside the two, and verify reports its helper and its secret
+    const three = { mcpServers: { ...bundle.mcpServers, ...cornell } };
+    const { ctx, io } = await makeCtx({ opts: { ...opts, tokens }, env: { USER: "aca34" }, dirs: [APP], files: {
+      [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(three),
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: ID, entries: [{ id: ID, name: ENTRY_NAME }] }), [`${L}/${ID}.json`]: JSON.stringify(wantedDoc({ baseUrl: "https://gw" }, INF)),
+      "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID }),
+    } });
+    secrets(io);
+    await desktopMcp.apply(ctx, desktopMcp.plan(ctx, await desktopMcp.detect(ctx)));
+    expect(JSON.parse(io.files.get(`${L}/${ID}.json`)!).managedMcpServers.map((s: { name: string }) => s.name)).toEqual(["openbrain", "mecp", "cornell_secure_tools"]);
+    expect(io.modes.get(path)).toBe(0o700);
+    const checks = await desktopMcp.verify(ctx);
+    expect(checks).toContainEqual({ id: "helper.cornell_secure_tools", status: "ok", message: `headers helper current: ${path}` });
+    expect(checks).toContainEqual(expect.objectContaining({ id: "secret.cornell_secure_tools", status: "ok", message: expect.stringContaining("cornell-ai-gateway present") }));
+    expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+  });
+
   it("fresh: absent → helper + servers written into the boot-slapper entry; other keys untouched; then present", async () => {
     const { ctx, io, events } = await box(); secrets(io);
     const s = await desktopMcp.detect(ctx);

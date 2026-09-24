@@ -34,15 +34,37 @@ export function wantedServers(bundle: BundleDoc, o: Opts, os: Os, home: string, 
     const type = e.type ?? "http";
     if (!e.url || !["http", "streamable-http", "sse"].includes(type)) { skipped.push(`${name} (no url / ${type})`); continue; }
     const s: ManagedServer = { name, transport: type === "sse" ? "sse" : "http", url: e.url };
-    const auth = Object.entries(e.headers ?? {}).find(([k]) => k.toLowerCase() === "authorization")?.[1];
-    if (auth === undefined) { s.oauth = true; servers.push(s); continue; }
-    const m = PLACEHOLDER.exec(auth); const service = m ? o.tokens[m[1]] : undefined;
-    if (!m || !service) { skipped.push(`${name} (Authorization header without a known \${VAR} placeholder — not copied)`); continue; }
+    const h = secretHeader(e.headers, o.tokens);
+    if (h === null) { s.oauth = true; servers.push(s); continue; }
+    if ("skip" in h) { skipped.push(`${name} (${h.skip} — not copied)`); continue; }
     const path = helperPath(os, home, `desktop-mcp-${name}-headers`);
-    helpers.push({ path, body: renderHeadersHelper(os, service, "Authorization", auth.slice(0, m.index), account) });
+    helpers.push({ path, body: renderHeadersHelper(os, h.service, h.header, h.prefix, account) });
     s.headersHelper = path; s.headersHelperTtlSec = 3600; servers.push(s);
   }
   return { servers, helpers, skipped };
+}
+
+/**
+ * The header of a bundle server that names a secret, if any. Any header — not only `Authorization` — whose value
+ * carries a `${VAR}` placeholder the profile's `tokens` map knows becomes the headers helper's one header, printed
+ * under its own name: Cornell's secure-tools connector authenticates with `x-litellm-api-key` (probed 2026-09-24,
+ * mac-studio: direct streamable-HTTP initialize → 200, 401 without), and the helper contract is a flat JSON object,
+ * so the name is ours to choose. `null` means no credential at all (Desktop treats the server as OAuth). A
+ * placeholder the profile does not map, or a literal `Authorization` value, is a reason to skip — never copied.
+ */
+export function secretHeader(headers: Record<string, string> | undefined, tokens: Record<string, SecretService>): { header: string; prefix: string; service: SecretService } | { skip: string } | null {
+  const entries = Object.entries(headers ?? {});
+  let unmapped: string | null = null;
+  for (const [header, value] of entries) {
+    const m = PLACEHOLDER.exec(value);
+    if (!m) continue;
+    const service = tokens[m[1]];
+    if (service) return { header, prefix: value.slice(0, m.index), service };
+    unmapped ??= m[1];
+  }
+  if (unmapped) return { skip: `\${${unmapped}} is not in the profile's tokens map` };
+  if (entries.some(([k]) => k.toLowerCase() === "authorization")) return { skip: "Authorization header without a ${VAR} placeholder" };
+  return null;
 }
 
 interface Facts {
@@ -128,7 +150,8 @@ export const desktopMcp: Artifact = {
     if (state.kind === "present" || state.kind === "blocked") return [];
     const d = state.details ?? []; const steps: Step[] = [];
     if (d.some((x) => x.startsWith(D.helper))) steps.push(step("helpers", "write the MCP headers helper(s) for Claude Desktop"));
-    if (d.some((x) => x.startsWith(D.servers))) steps.push(step("servers", `write MeCP + Open Brain as managed MCP servers in the '${ENTRY_NAME}' entry`));
+    const differ = d.find((x) => x.startsWith(D.servers));
+    if (differ) steps.push(step("servers", `write the managed MCP servers (${differ.slice(D.servers.length).split(" — ")[0].trim()}) into the '${ENTRY_NAME}' entry`));
     return steps;
   },
 
@@ -174,9 +197,9 @@ export const desktopMcp: Artifact = {
         const body = f.wanted.helpers.find((h) => h.path === w.headersHelper)?.body;
         const helperFix = f.adopted && !f.serversCurrent ? `bs onboard writes it once ${w.name} is in the applied configuration` : "run bs onboard";
         out.push((await ctx.io.readFile(w.headersHelper)) === body ? { id: `helper.${w.name}`, status: "ok", message: `headers helper current: ${w.headersHelper}` } : { id: `helper.${w.name}`, status: "error", message: `headers helper missing or stale: ${w.headersHelper} — ${helperFix}` });
-        const m = PLACEHOLDER.exec(Object.entries(f.bundle.mcpServers?.[w.name]?.headers ?? {}).find(([k]) => k.toLowerCase() === "authorization")?.[1] ?? "");
-        const service = m ? o.tokens[m[1]] : undefined;
-        if (service) {
+        const h = secretHeader(f.bundle.mcpServers?.[w.name]?.headers, o.tokens);
+        if (h && "service" in h) {
+          const { service } = h;
           const ref = { service, account: defaultAccount(ctx.io) };
           out.push((await ctx.secrets.get(ref)) !== null ? { id: `secret.${w.name}`, status: "ok", message: `${service} present (${ctx.secrets.describe(ref)})` } : { id: `secret.${w.name}`, status: "warn", message: `${service} missing — bs secrets set ${service} (the helper will fail until then)` });
         }
