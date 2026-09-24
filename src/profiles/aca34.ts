@@ -25,7 +25,7 @@ export const aca34: Profile = {
     // deviceIds: device label → MeCP device slug (fleet convention: mct device id == MeCP slug). Verified on JCB-AL-ACA34 from its ~/.mct/config.json;
     // JCB-AL-AV01 follows the slug in MeCP. A new box without an entry is asked interactively.
     mct: { sshUrl: "git@github.com:merpuya/me-count-token.git", httpsUrl: "https://github.com/merpuya/me-count-token.git", syncUrl: "https://mct.kearnsapuya.net",
-      deviceIds: { "JCB-AL-ACA34": "macbook-aca34", "JCB-AL-AV01": "jcb-al-av01" } },
+      deviceIds: { "JCB-AL-ACA34": "macbook-aca34", "JCB-AL-AV01": "jcb-al-av01", "mac-studio.kearnsapuya.net": "mac-studio-m5-max" } },
     // The set enabled on JCB-AL-ACA34 on 2026-09-10; plugins the owner keeps disabled — github, firecrawl, microsoft-docs,
     // plugin-dev, supabase, vercel, learning-output-style — are deliberately not listed.
     plugins: {

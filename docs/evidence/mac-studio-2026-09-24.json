@@ -1,0 +1,388 @@
+{
+  "profile": "aca34",
+  "env": {
+    "provider": "gateway",
+    "surface": "code",
+    "os": "darwin",
+    "home": "/Users/alex",
+    "label": "mac-studio.kearnsapuya.net",
+    "claudeDir": "/Users/alex/.claude"
+  },
+  "status": "warn",
+  "checks": {
+    "prereqs": [
+      {
+        "id": "git",
+        "status": "ok",
+        "message": "prereq: git"
+      },
+      {
+        "id": "curl",
+        "status": "ok",
+        "message": "prereq: curl"
+      },
+      {
+        "id": "jq",
+        "status": "ok",
+        "message": "prereq: jq"
+      },
+      {
+        "id": "python",
+        "status": "ok",
+        "message": "prereq: python (/opt/homebrew/bin/python3)"
+      },
+      {
+        "id": "node",
+        "status": "ok",
+        "message": "prereq: node v26.9.0"
+      },
+      {
+        "id": "claude",
+        "status": "ok",
+        "message": "prereq: claude"
+      },
+      {
+        "id": "desktop",
+        "status": "ok",
+        "message": "Claude Desktop 2.7032.0 at /Applications/Claude.app"
+      },
+      {
+        "id": "desktop-store",
+        "status": "ok",
+        "message": "Claude-3p store: /Users/alex/Library/Application Support/Claude-3p (the only location on this OS)"
+      },
+      {
+        "id": "platform",
+        "status": "ok",
+        "message": "platform: darwin"
+      }
+    ],
+    "hosted-connectors": [
+      {
+        "id": "connectors",
+        "status": "ok",
+        "message": "not on a gateway box (expected): Gmail, Google Calendar, Google Drive, FGAC.ai (Google Workspace), Todoist, Airtable, Home Assistant, Trello, Wispr Flow, n8n, Shopify, Supabase, Vercel, Cloudflare Developer Platform, Microsoft Learn, Context7, AccuWeather"
+      },
+      {
+        "id": "features",
+        "status": "ok",
+        "message": "not in Claude Desktop on 3P (expected): Claude in Chrome, claude.ai web access, Voice mode, Claude Design, project and plugin sharing, chat-history search"
+      }
+    ],
+    "claude-config": [
+      {
+        "id": "checkout",
+        "status": "ok",
+        "message": "~/.claude is a git checkout"
+      },
+      {
+        "id": "clean",
+        "status": "ok",
+        "message": "~/.claude clean vs origin"
+      },
+      {
+        "id": "settings-valid",
+        "status": "ok",
+        "message": "settings.json is valid JSON"
+      },
+      {
+        "id": "hooks-match",
+        "status": "ok",
+        "message": "hooks match canonical-hooks.json"
+      },
+      {
+        "id": "template-keys",
+        "status": "ok",
+        "message": "settings.json carries every template key (managed keys in sync)"
+      }
+    ],
+    "secrets": [
+      {
+        "id": "cornell-ai-gateway",
+        "status": "ok",
+        "message": "cornell-ai-gateway present (login Keychain item service=cornell-ai-gateway account=alex)"
+      },
+      {
+        "id": "mecp-device-token",
+        "status": "ok",
+        "message": "mecp-device-token present (login Keychain item service=mecp-device-token account=alex)"
+      },
+      {
+        "id": "mecp-api-key",
+        "status": "ok",
+        "message": "mecp-api-key present (file /Users/alex/.config/mecp/api_key (mode 600))"
+      },
+      {
+        "id": "mct-sync-token",
+        "status": "ok",
+        "message": "mct-sync-token present (login Keychain item service=mct-sync-token account=alex)"
+      }
+    ],
+    "project-memory": [
+      {
+        "id": "repo",
+        "status": "ok",
+        "message": "claude-memory-sync repo present"
+      },
+      {
+        "id": "hook-scripts",
+        "status": "ok",
+        "message": "hook scripts present in ~/.claude/scripts (owned by dotclaude)"
+      },
+      {
+        "id": "device-config",
+        "status": "ok",
+        "message": "device config exists: devices/mac-studio.kearnsapuya.net.json"
+      },
+      {
+        "id": "resolves",
+        "status": "ok",
+        "message": "sync-memory list resolves this device's config"
+      },
+      {
+        "id": "coverage",
+        "status": "warn",
+        "message": "1 mapped; these memory dirs are NOT synced: -private-var-folders-5l-plbd03pn05bbvxs3t-cfw3k00000gn-T"
+      }
+    ],
+    "plugins": [
+      {
+        "id": "cli",
+        "status": "ok",
+        "message": "claude CLI on PATH"
+      },
+      {
+        "id": "marketplace.claude-plugins-official",
+        "status": "ok",
+        "message": "marketplace claude-plugins-official (anthropics/claude-plugins-official)"
+      },
+      {
+        "id": "marketplace.cornell-ai",
+        "status": "ok",
+        "message": "marketplace cornell-ai (cu-aaii/claude-plugins-marketplace)"
+      },
+      {
+        "id": "plugin.superpowers@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin superpowers@claude-plugins-official 6.4.1"
+      },
+      {
+        "id": "plugin.context7@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin context7@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.code-review@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin code-review@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.code-simplifier@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin code-simplifier@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.commit-commands@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin commit-commands@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.feature-dev@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin feature-dev@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.frontend-design@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin frontend-design@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.mcp-server-dev@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin mcp-server-dev@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.claude-code-setup@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin claude-code-setup@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.claude-md-management@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin claude-md-management@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.explanatory-output-style@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin explanatory-output-style@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.notion@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin notion@claude-plugins-official 0.1.0"
+      },
+      {
+        "id": "plugin.playwright@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin playwright@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.ralph-loop@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin ralph-loop@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.remember@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin remember@claude-plugins-official 0.33.0"
+      },
+      {
+        "id": "plugin.security-guidance@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin security-guidance@claude-plugins-official 2.0.8"
+      },
+      {
+        "id": "plugin.skill-creator@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin skill-creator@claude-plugins-official 6bfd4e0c6d3d"
+      },
+      {
+        "id": "plugin.pyright-lsp@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin pyright-lsp@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.swift-lsp@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin swift-lsp@claude-plugins-official 1.0.0"
+      },
+      {
+        "id": "plugin.typescript-lsp@claude-plugins-official",
+        "status": "ok",
+        "message": "plugin typescript-lsp@claude-plugins-official 1.0.0"
+      }
+    ],
+    "gateway-launch": [
+      {
+        "id": "wrapper",
+        "status": "ok",
+        "message": "wrapper current: /Users/alex/.config/boot-slapper/claude-gw.zsh"
+      },
+      {
+        "id": "shell-rc",
+        "status": "ok",
+        "message": "/Users/alex/.zshrc sources the wrapper"
+      },
+      {
+        "id": "mcp-bundle",
+        "status": "ok",
+        "message": "/Users/alex/.claude/mcp/gateway.json has mecp + openbrain"
+      },
+      {
+        "id": "gateway-secret",
+        "status": "ok",
+        "message": "gateway token present"
+      }
+    ],
+    "mct": [
+      {
+        "id": "status",
+        "status": "warn",
+        "message": "mct doctor reports problems — node \"/Users/alex/projects/me-count-token/dist/cli.js\" doctor"
+      }
+    ],
+    "desktop-inference": [
+      {
+        "id": "installed",
+        "status": "ok",
+        "message": "Claude Desktop at /Applications/Claude.app"
+      },
+      {
+        "id": "version",
+        "status": "ok",
+        "message": "Claude Desktop 2.7032.0 (≥ 1.19367.0)"
+      },
+      {
+        "id": "managed",
+        "status": "ok",
+        "message": "no managed configuration present"
+      },
+      {
+        "id": "entry",
+        "status": "ok",
+        "message": "boot-slapper entry applied (d04f1f9c-5d79-4b53-ac78-32c1e10fca21) — gateway https://api.ai.it.cornell.edu, credential helper"
+      },
+      {
+        "id": "helper",
+        "status": "ok",
+        "message": "credential helper current: /Users/alex/.config/boot-slapper/desktop-inference-credential.sh"
+      },
+      {
+        "id": "secret",
+        "status": "ok",
+        "message": "gateway key present (login Keychain item service=cornell-ai-gateway account=alex)"
+      },
+      {
+        "id": "models",
+        "status": "ok",
+        "message": "gateway https://api.ai.it.cornell.edu lists 191 model(s)"
+      }
+    ],
+    "desktop-mcp": [
+      {
+        "id": "version",
+        "status": "ok",
+        "message": "Claude Desktop 2.7032.0 supports managed MCP servers"
+      },
+      {
+        "id": "managed",
+        "status": "ok",
+        "message": "no managed configuration present"
+      },
+      {
+        "id": "server.openbrain",
+        "status": "ok",
+        "message": "openbrain: https://openbrain.kearnsapuya.net/mcp (oauth)"
+      },
+      {
+        "id": "server.mecp",
+        "status": "ok",
+        "message": "mecp: https://mecp.kearnsapuya.net/mcp (headers helper)"
+      },
+      {
+        "id": "helper.mecp",
+        "status": "ok",
+        "message": "headers helper current: /Users/alex/.config/boot-slapper/desktop-mcp-mecp-headers.sh"
+      },
+      {
+        "id": "secret.mecp",
+        "status": "ok",
+        "message": "mecp-device-token present (login Keychain item service=mecp-device-token account=alex)"
+      }
+    ],
+    "desktop-skills": [
+      {
+        "id": "cowork",
+        "status": "ok",
+        "message": "Cowork skills plugin at /Users/alex/Library/Application Support/Claude-3p/local-agent-mode-sessions/skills-plugin/00000000-0000-4000-8000-000000000001/bff602a4-75ce-4e31-aa5a-384a6511ef0b"
+      },
+      {
+        "id": "skill.mecp-conventions",
+        "status": "ok",
+        "message": "mecp-conventions in Cowork (1 file(s))"
+      }
+    ],
+    "open-brain-auth": [
+      {
+        "id": "code",
+        "status": "warn",
+        "message": "Claude Code has no Open Brain grant — Claude Code: /mcp → openbrain → Authenticate"
+      },
+      {
+        "id": "desktop",
+        "status": "ok",
+        "message": "Claude Desktop holds an Open Brain OAuth grant (openbrain)"
+      }
+    ]
+  }
+}
