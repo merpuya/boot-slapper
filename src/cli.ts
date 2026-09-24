@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { InteractiveRequired } from "./engine/artifact.ts";
 import { captureBundle, SecretScanError, type CaptureResult } from "./engine/capture.ts";
@@ -11,6 +10,7 @@ import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
 import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
+import { isMainModule } from "./main-guard.ts";
 import { aca34 } from "./profiles/aca34.ts";
 import { doctorSummary, headlessReporter, renderChecksText, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
 import { headlessPrompter, ttyPrompter } from "./ui/prompt.ts";
@@ -148,6 +148,6 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   }
 }
 
-if ((process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) || process.argv[1]?.endsWith("/dist/cli.js") || process.argv[1]?.endsWith("\\dist\\cli.js")) {
+if (isMainModule(process.argv[1], import.meta.url)) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e); process.exit(1); });
 }
