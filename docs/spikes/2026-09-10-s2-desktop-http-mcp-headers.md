@@ -100,3 +100,14 @@ executable, or `oauth`. No `mcp-remote` bridge is needed.
   header in the 0600 file).
 - Whether the connector list in claude.ai mode (`Claude/` data dir) is affected at all — it should not be; the
   library is 3P-only.
+
+## Addendum 2026-09-24 — the gateway's own MCP endpoint takes a direct HTTP client
+
+Probed from mac-studio with the stored gateway key (value never printed): `POST https://api.ai.it.cornell.edu/mcp/`
+with an `initialize` body and the header `x-litellm-api-key` returns 200 and `serverInfo.name: litellm-mcp-server`,
+both with the `Bearer ` prefix and with the bare key; without the header it returns 401. So Cornell's secure-tools
+connector, which KB article 9077 installs as an `npx mcp-remote@0.1.38` stdio bridge in `claude_desktop_config.json`
+with the key in argv, needs no bridge: it is one more `managedMcpServers` entry with a headers helper, and the same
+bundle entry serves Claude Code through `${ANTHROPIC_AUTH_TOKEN}`. The headers-helper contract is a flat JSON object,
+so the header name is the helper's to choose — `desktop-mcp` now derives a helper from any bundle header carrying a
+mapped `${VAR}` placeholder, not only `Authorization`.

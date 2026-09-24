@@ -69,7 +69,7 @@ edited by `bs`; the owner adds the servers, then `bs` does the rest.
    `%LOCALAPPDATA%\Claude-3p\configLibrary\`) somewhere mode-600 — it holds the static gateway key if the entry was made in the app.
 3. Add the managed servers to that entry. The array is the one the app's Connectors pane edits: top-level `managedMcpServers` in a
    v1 flat document (no `$schemaVersion`), `mcp.managedServers` in v2. Take the items verbatim from `bs plan`'s blocked reason or from
-   `wantedServers()` — `openbrain` with `oauth: true`, `mecp` with `headersHelper` pointing at `~/.config/boot-slapper/desktop-mcp-mecp-headers.sh`
+   `wantedServers()` — `openbrain` with `oauth: true`, `mecp` with `headersHelper` pointing at `~/.config/boot-slapper/desktop-mcp-mecp-headers.sh`, and since 2026-09-24 `cornell_secure_tools` with `headersHelper` pointing at `~/.config/boot-slapper/desktop-mcp-cornell_secure_tools-headers.sh`
    (the helper does not exist yet; step 4 writes it). Alternatively add them in the app: Developer → Configure Third-Party Inference… →
    Connectors → Apply Changes (that path also relaunches Desktop and re-serializes the entry, see below).
 4. `bs onboard --only desktop-mcp,desktop-skills` (still with Desktop quit). desktop-mcp detects the servers in the applied entry and
