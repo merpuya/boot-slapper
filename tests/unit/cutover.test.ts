@@ -19,4 +19,8 @@ describe("staged cutover files", () => {
     const r = read("docs/cutover/gate-2-runbook.md");
     for (const s of ["dotclaude/bootstrap.sh", "dotfiles/install.sh", "dotfiles/install.ps1", "dotfiles/zsh/claude-gw.zsh", "docs/gateway-sessions.md", "doctor --json", "sync-memory", "Managed Configuration Report"]) expect(r).toContain(s);
   });
+  it("the gate-2 shim PR drafts cover every repo change in the runbook and reference the staged files", () => {
+    const pr = read("docs/cutover/gate-2-shim-prs.md");
+    for (const s of ["staged/bootstrap.sh", "staged/gateway-sessions.md", "staged/dotfiles-install-step3.sh", "staged/dotfiles-install-step3.ps1", "zsh/claude-gw.zsh", "boot-slapper:claude-gw", "Do not apply before gate 2"]) expect(pr).toContain(s);
+  });
 });
