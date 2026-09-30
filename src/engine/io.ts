@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { homedir, hostname, platform as osPlatform } from "node:os";
 import path from "node:path";
@@ -25,6 +25,8 @@ export interface Io {
   exec(cmd: string, args: string[], opts?: ExecOpts): Promise<ExecResult>;
   which(cmd: string): Promise<string | null>;
   fetch(url: string, init?: FetchInit): Promise<FetchResult>;
+  /** Kill any child process an `exec` is still waiting on. Ink swallows SIGINT in raw mode, so the TUI calls this on Ctrl+C. */
+  killLive?(): void;
 }
 
 export class RealIo implements Io {
@@ -32,6 +34,18 @@ export class RealIo implements Io {
   readonly platform = osPlatform();
   readonly home = homedir();
   readonly hostname = hostname();
+  private live = new Set<ChildProcess>();
+  private killed = false;
+
+  killLive(): void {
+    this.killed = true;   // the run is being torn down: a step still unwinding must not start the next child
+    for (const child of this.live) {
+      // A process tree on Windows (npm → node → …) survives a plain kill of its root.
+      if (this.platform === "win32" && child.pid !== undefined) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+      else child.kill("SIGTERM");
+    }
+    this.live.clear();
+  }
 
   async readFile(p: string): Promise<string | null> {
     try { return await fs.readFile(p, "utf8"); }
@@ -61,12 +75,14 @@ export class RealIo implements Io {
   }
   exec(cmd: string, args: string[], opts: ExecOpts = {}): Promise<ExecResult> {
     return new Promise((resolve) => {
+      if (this.killed) { resolve({ code: 130, stdout: "", stderr: "[interrupted]" }); return; }
       const child = spawn(cmd, args, {
         cwd: opts.cwd,
         env: opts.env ? { ...process.env, ...opts.env } : process.env,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
+      this.live.add(child);
       let stdout = "", stderr = "";
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;
@@ -78,8 +94,9 @@ export class RealIo implements Io {
       child.stdout.on("data", (d) => (stdout += d));
       child.stderr.on("data", (d) => (stderr += d));
       child.stdin.on("error", () => {});
-      child.on("error", (e) => { if (timer) clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr + String(e) }); });
+      child.on("error", (e) => { this.live.delete(child); if (timer) clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr + String(e) }); });
       child.on("close", (code) => {
+        this.live.delete(child);
         if (timer) clearTimeout(timer);
         if (timedOut) { resolve({ code: 124, stdout, stderr: stderr + "\n[timeout]" }); return; }
         resolve({ code: code ?? 1, stdout, stderr });

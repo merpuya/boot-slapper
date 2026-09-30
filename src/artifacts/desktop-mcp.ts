@@ -123,7 +123,7 @@ export const desktopMcp: Artifact = {
     const f = await facts(ctx);
     if (!f.installed) return { kind: "blocked", reason: "Claude Desktop not installed — see desktop-inference" };
     if (f.versionOld) return { kind: "blocked", reason: `Claude Desktop ${f.version} < ${MIN_DESKTOP_VERSION} — update it, then re-run` };
-    if (f.takeover) return { kind: "blocked", reason: `managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored; managed MCP servers may differ from what boot-slapper writes. Ask IT for the managed policy, or check Developer → Configure Third-Party Inference… (read-only there)` };
+    if (f.takeover) return { kind: "policy-owned", reason: `managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored; managed MCP servers may differ from what boot-slapper writes. Ask IT for the managed policy, or check Developer → Configure Third-Party Inference… (read-only there)` };
     if (f.bundle === null) return { kind: "blocked", reason: `${f.bundlePath} missing — it is a tracked dotclaude file; check the claude-config artifact` };
     if (f.bundle === "invalid") return { kind: "blocked", reason: `${f.bundlePath} is not valid JSON — fix it in dotclaude` };
     if (f.ours === "invalid") return { kind: "blocked", reason: "boot-slapper config-library entry is not valid JSON — see desktop-inference" };
@@ -185,8 +185,11 @@ export const desktopMcp: Artifact = {
     const f = await facts(ctx); const o = ctx.opts as unknown as Opts; const out: Check[] = [];
     if (!f.installed) return [{ id: "installed", status: "error", message: "Claude Desktop not installed" }];
     out.push(f.version && !versionAtLeast(f.version, MIN_DESKTOP_VERSION) ? { id: "version", status: "error", message: `Claude Desktop ${f.version} < ${MIN_DESKTOP_VERSION} — managed MCP servers with helpers need a newer build` } : { id: "version", status: "ok", message: `Claude Desktop ${f.version ?? "(version unknown)"} supports managed MCP servers` });
-    out.push(f.takeover ? { id: "managed", status: "error", message: `managed configuration owns Claude Desktop: ${f.takeover} — local settings are ignored, managed MCP servers may differ from what boot-slapper writes` }
-      : { id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
+    if (f.takeover) {
+      out.push({ id: "managed", status: "info", message: `policy-owned: managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored, so boot-slapper writes and checks no MCP servers here; managed MCP servers may differ from the bundle` });
+      return out;
+    }
+    out.push({ id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
     if (f.bundle === null || f.bundle === "invalid") { out.push({ id: "bundle", status: "error", message: `${f.bundlePath} missing or invalid` }); return out; }
     if (f.adopted) out.push({ id: "entry", status: "ok", message: `reading managed servers from the applied configuration '${f.adopted.name}' — not managed by boot-slapper, never edited` });
     for (const w of f.wanted.servers) {

@@ -9,10 +9,14 @@ export type State =
   | { kind: "absent"; details?: string[] }
   | { kind: "present" }
   | { kind: "drifted"; details: string[] }
-  | { kind: "blocked"; reason: string };
+  | { kind: "blocked"; reason: string }
+  /** Machine policy (MDM / group policy) owns this surface: not ours to write and not a failure. Unlike `blocked` it does not
+   *  poison dependents, and doctor reports it as `info`, so a managed box can read green for what actually applies to it. */
+  | { kind: "policy-owned"; reason: string };
 
 export interface Step { id: string; title: string; interactive?: boolean; secret?: SecretRef }
-export type CheckStatus = "ok" | "warn" | "error";
+/** `info` is informational only: it never fails or warns the doctor (see worstStatus). */
+export type CheckStatus = "ok" | "info" | "warn" | "error";
 export interface Check { id: string; status: CheckStatus; message: string }
 
 export class InteractiveRequired extends Error {
@@ -37,14 +41,19 @@ export interface Ctx {
 export interface BundleFile { path: string; content: string }
 export interface Bundle { files: BundleFile[]; instructions: string[] }
 
+/** What a step can report beyond "done" or "threw": it ran but deliberately did nothing (missing input, old node, ...).
+ *  `apply` runs one step at a time under the engine, so a single outcome describes that step. */
+export type StepOutcome = void | { skipped: string };
+
 export interface Artifact {
   id: string;
   surfaces: Surface[];
   portability: Portability;
   requires: string[];
   detect(ctx: Ctx): Promise<State>;
-  plan(ctx: Ctx, state: State): Step[];
-  apply(ctx: Ctx, steps: Step[]): Promise<void>;
+  /** Never called for `blocked` or `policy-owned` states — the engine plans nothing for them. */
+  plan(ctx: Ctx, state: Exclude<State, { kind: "policy-owned" }>): Step[];
+  apply(ctx: Ctx, steps: Step[]): Promise<StepOutcome>;
   verify(ctx: Ctx): Promise<Check[]>;
   /** Read-only. device-bound / non-transferable artifacts may return instructions but never files (engine/capture.ts enforces it). */
   capture?(ctx: Ctx): Promise<Bundle>;

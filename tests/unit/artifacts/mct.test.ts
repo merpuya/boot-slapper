@@ -60,7 +60,7 @@ describe("mct", () => {
   it("no sync token in the store: warn and skip activation without writing anything", async () => {
     const { ctx, io, events } = await makeCtx({ opts: { ...opts, deviceIds: { BOX: "box-slug" } }, path: tools, env: { USER: "aca34", DEVICE_LABEL: "BOX" }, dirs: [DIR, `${DIR}/dist/hooks`], files: { [BUILT]: "" } });
     fakes(io, { token: false });
-    await mct.apply(ctx, [{ id: "mct.activate", title: "", secret: { service: "mct-sync-token", account: "aca34" } }]);
+    expect(await mct.apply(ctx, [{ id: "mct.activate", title: "", secret: { service: "mct-sync-token", account: "aca34" } }])).toEqual({ skipped: "no sync token in the store" });
     expect(io.writes).toEqual([]);
     expect(io.calls.find((c) => c.cmd === "node" && c.args[1] === "onboard")).toBeUndefined();
     expect(events).toContainEqual({ type: "note", level: "warn", message: "mct: no sync token — bs secrets set mct-sync-token (mint it with `mct devices add box-slug` on an admin box), then re-run" });
@@ -69,7 +69,7 @@ describe("mct", () => {
   it("headless without a deviceIds entry: warn and skip; a blank interactive answer does the same", async () => {
     const { ctx, io, events } = await makeCtx({ opts, path: tools, env: { USER: "aca34", DEVICE_LABEL: "BOX" }, dirs: [DIR, `${DIR}/dist/hooks`], files: { [BUILT]: "" } });
     fakes(io);
-    await mct.apply(ctx, [{ id: "mct.activate", title: "", secret: { service: "mct-sync-token", account: "aca34" } }]);
+    expect(await mct.apply(ctx, [{ id: "mct.activate", title: "", secret: { service: "mct-sync-token", account: "aca34" } }])).toEqual({ skipped: "no device id" });
     expect(io.writes).toEqual([]);
     expect(events.find((e) => e.type === "note" && /no device id/.test(e.message))).toBeTruthy();
   });

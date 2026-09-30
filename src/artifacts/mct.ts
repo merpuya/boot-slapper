@@ -100,12 +100,12 @@ export const mct: Artifact = {
           let existing: Record<string, unknown> = {};
           const raw = await io.readFile(f.configPath);
           if (raw !== null && raw.trim()) { try { existing = JSON.parse(raw) as Record<string, unknown>; } catch { throw new Error(`${f.configPath} is not valid JSON — fix it by hand, then re-run`); } }
-          if (!nodeOk(f.node)) { ctx.emit({ type: "note", level: "warn", message: `mct: node ${f.node?.raw ?? "(missing)"} < 22.5 — hooks spool sidecars, but onboard needs node:sqlite; upgrade node and re-run` }); break; }
+          if (!nodeOk(f.node)) { ctx.emit({ type: "note", level: "warn", message: `mct: node ${f.node?.raw ?? "(missing)"} < 22.5 — hooks spool sidecars, but onboard needs node:sqlite; upgrade node and re-run` }); return { skipped: `node ${f.node?.raw ?? "(missing)"} < 22.5` }; }
           const deviceId = o.deviceIds?.[env.label] ?? (ctx.interactive ? (await ctx.prompt.text("mct device id (MeCP device slug; blank to skip)", "")).trim() : "");
-          if (!deviceId) { ctx.emit({ type: "note", level: "warn", message: "mct: no device id — activate later with bs onboard --only mct (interactive) or add deviceIds[<label>] to the profile" }); break; }
+          if (!deviceId) { ctx.emit({ type: "note", level: "warn", message: "mct: no device id — activate later with bs onboard --only mct (interactive) or add deviceIds[<label>] to the profile" }); return { skipped: "no device id" }; }
           if (!s.secret) throw new Error(`step ${s.id} carries no SecretRef`);
           const token = await ctx.secrets.get(s.secret);
-          if (token === null) { ctx.emit({ type: "note", level: "warn", message: `mct: no sync token — bs secrets set mct-sync-token (mint it with \`mct devices add ${deviceId}\` on an admin box), then re-run` }); break; }
+          if (token === null) { ctx.emit({ type: "note", level: "warn", message: `mct: no sync token — bs secrets set mct-sync-token (mint it with \`mct devices add ${deviceId}\` on an admin box), then re-run` }); return { skipped: "no sync token in the store" }; }
           // The token goes into mct's own store (mode 600) — never argv. A bare `onboard` is mct's repair pass: keeps every value, verifies token↔device, installs hooks/OTEL, scans, syncs, doctors.
           await io.mkdirp(pj(env.os, env.home, ".mct"), { mode: 0o700 });
           await io.writeFile(f.configPath, JSON.stringify({ ...existing, deviceId, syncUrl: o.syncUrl, syncToken: token }, null, 2) + "\n", { mode: 0o600 });

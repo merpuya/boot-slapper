@@ -2,16 +2,24 @@ import { Box, Text } from "ink";
 import type { ArtifactRow, Note, StepRow } from "./model.ts";
 import { stateLabel, summary } from "./model.ts";
 
-const ICON = { ok: "✓", warn: "!", error: "✗" } as const;
-const COLOR = { ok: "green", warn: "yellow", error: "red" } as const;
+const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" } as const;
+const COLOR = { ok: "green", info: "cyan", warn: "yellow", error: "red" } as const;
 const STEP = { pending: "·", running: "…", ok: "✓", failed: "✗", skipped: "-" } as const;
+
+/** An icon column plus a wrapping text column, so a long message's continuation lines hang under the text, not under the icon. */
+function Hanging({ indent, icon, color, children }: { indent: number; icon: string; color?: string; children: string }) {
+  return (
+    <Box paddingLeft={indent}>
+      <Box flexShrink={0} width={icon.length + 1}><Text color={color}>{icon}</Text></Box>
+      <Box flexShrink={1}><Text color={color}>{children}</Text></Box>
+    </Box>
+  );
+}
 
 function StepLine({ step }: { step: StepRow }) {
   const color = step.status === "ok" ? "green" : step.status === "failed" ? "red" : step.status === "running" ? "cyan" : step.status === "skipped" ? "yellow" : undefined;
   return (
-    <Box paddingLeft={4}>
-      <Text color={color}>{STEP[step.status]} {step.title}{step.interactive ? " (interactive)" : ""}{step.error ? ` — ${step.error}` : ""}</Text>
-    </Box>
+    <Hanging indent={4} icon={STEP[step.status]} color={color}>{`${step.title}${step.interactive ? " (interactive)" : ""}${step.error ? ` — ${step.error}` : ""}${step.skipReason ? ` — skipped: ${step.skipReason}` : ""}`}</Hanging>
   );
 }
 
@@ -41,7 +49,7 @@ export function CheckRows({ rows }: { rows: ArtifactRow[] }) {
         <Box key={r.id} flexDirection="column">
           <Text bold>{r.id}</Text>
           {r.checks.map((c, i) => (
-            <Box key={`${c.id}-${i}`} paddingLeft={4}><Text color={COLOR[c.status]}>{ICON[c.status]} {c.message}</Text></Box>
+            <Hanging key={`${c.id}-${i}`} indent={4} icon={ICON[c.status]} color={COLOR[c.status]}>{c.message}</Hanging>
           ))}
         </Box>
       ))}
@@ -57,7 +65,7 @@ export function Notes({ notes }: { notes: Note[] }) {
   return (
     <Box flexDirection="column">
       {notes.map((n, i) => (
-        <Box key={i} paddingLeft={4}><Text color={n.level === "info" ? undefined : COLOR[n.level]}>{n.level === "info" ? "·" : ICON[n.level]} {n.message}</Text></Box>
+        <Hanging key={i} indent={4} icon={n.level === "info" ? "·" : ICON[n.level]} color={n.level === "info" ? undefined : COLOR[n.level]}>{n.message}</Hanging>
       ))}
     </Box>
   );

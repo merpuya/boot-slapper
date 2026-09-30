@@ -63,4 +63,27 @@ describe("Ink TUI", () => {
     expect(stdout.lastFrame()).toContain("Doctor: 1 check(s) FAILED");
     expect(stdout.frames.at(-1)).toBe("\n");   // the very last write is a newline, so nothing after Ink can erase the summary line
   });
+  it("doctor at a narrow width: a long check message wraps with a hanging indent under the text, not under the icon", async () => {
+    const f = fixture();
+    f.profile.artifacts[0].verify = async () => [{ id: "a.long", status: "warn", message: "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima" }];
+    const stdout = new FakeStdout(); stdout.columns = 40; const stdin = new FakeStdin();
+    const done = runTui({ mode: "doctor", profile: f.profile, io: new FakeIo(), streams: { stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream }, debug: true });
+    expect(await done).toBe(0);
+    const lines = stdout.lastFrame().split("\n");
+    const first = lines.findIndex((l) => l.startsWith("    ! alpha"));
+    expect(first).toBeGreaterThanOrEqual(0);
+    const cont = lines.slice(first + 1).filter((l) => /^\s+\S/.test(l) && /(golf|hotel|india|juliet|kilo|lima|echo|foxtrot)/.test(l));
+    expect(cont.length).toBeGreaterThan(0);
+    for (const l of cont) expect(l.startsWith("      ") && !l.startsWith("       ")).toBe(true);   // six spaces: 4 indent + icon column (2)
+    expect(lines.filter((l) => l.length > 40)).toEqual([]);
+  });
+  it("Ctrl+C at the confirm prompt exits 130 and kills any child the Io is still running", async () => {
+    const f = fixture(); const io = new FakeIo(); let killed = 0; io.killLive = () => { killed++; };
+    const stdout = new FakeStdout(); const stdin = new FakeStdin();
+    const done = runTui({ mode: "onboard", profile: f.profile, io, streams: { stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream }, debug: true });
+    await waitFor(() => stdout.lastFrame().includes("Apply this plan? [y/N]"));
+    stdin.write("\x03");
+    expect(await done).toBe(130);
+    expect(killed).toBe(1);
+  });
 });

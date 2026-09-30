@@ -135,7 +135,8 @@ export const desktopInference: Artifact = {
   async detect(ctx): Promise<State> {
     const f = await facts(ctx); const o = ctx.opts as unknown as Opts;
     const blocked = blockedReason(f, o);
-    if (blocked) return { kind: "blocked", reason: blocked };
+    // Managed takeover of an installed, new-enough Desktop is policy, not a fault: nothing here is ours to write (see State "policy-owned").
+    if (blocked) return f.takeover && f.install.installed && !f.versionOld ? { kind: "policy-owned", reason: blocked } : { kind: "blocked", reason: blocked };
     if (f.adopted) return { kind: "present" };
     const details: string[] = [];
     if (!f.helperCurrent) details.push(`${D.helper} — will write ${f.helper}`);
@@ -202,8 +203,11 @@ export const desktopInference: Artifact = {
     out.push({ id: "installed", status: "ok", message: `Claude Desktop at ${f.install.path}` });
     out.push(f.versionOld ? { id: "version", status: "error", message: `Claude Desktop ${f.install.version} < ${MIN_DESKTOP_VERSION}` }
       : f.install.version ? { id: "version", status: "ok", message: `Claude Desktop ${f.install.version} (≥ ${MIN_DESKTOP_VERSION})` } : { id: "version", status: "warn", message: "Claude Desktop version unknown — Help → Troubleshooting → Copy Managed Configuration Report shows it" });
-    out.push(f.takeover ? { id: "managed", status: "error", message: `managed configuration owns Claude Desktop: ${f.takeover} — local settings are ignored` }
-      : { id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
+    if (f.takeover) {
+      out.push({ id: "managed", status: "info", message: `policy-owned: managed configuration owns Claude Desktop (${f.takeover}) — the local config library is ignored, so boot-slapper writes and checks nothing here. Ask IT for the gateway profile if it should route through ${o.baseUrl}` });
+      return out;
+    }
+    out.push({ id: "managed", status: "ok", message: f.managedKeys ? `no managed takeover (${f.managedKeys} app-behavior key(s) managed by MDM)` : "no managed configuration present" });
     if (f.adopted) out.push({ id: "entry", status: "ok", message: `adopted the applied configuration '${f.adopted.name}' (gateway, ${f.adopted.baseUrl}) — not managed by boot-slapper` });
     else if (f.ours && f.ours !== "invalid" && f.ours.applied && f.docCurrent) out.push({ id: "entry", status: "ok", message: `boot-slapper entry applied (${f.ours.id}) — gateway ${o.baseUrl}, credential helper` });
     else out.push({ id: "entry", status: "error", message: f.ours === "invalid" ? "boot-slapper config-library entry is not valid JSON" : `Claude Desktop is not configured for the gateway — run bs onboard --only ${ID}` });

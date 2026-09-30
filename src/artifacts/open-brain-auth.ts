@@ -6,7 +6,9 @@ import { defaultAccount } from "../engine/secrets/store.ts";
 const ID = "open-brain-auth";
 interface Opts { server: string }
 export const D = { code: "Claude Code has no Open Brain grant", desktop: "Claude Desktop has no Open Brain grant" } as const;
-const CODE_HINT = (s: string) => `Claude Code: /mcp → ${s} → Authenticate`;
+// The openbrain server lives in the launch-scoped ~/.claude/mcp/gateway.json, so a plain `claude` session's /mcp has no such entry
+// (the owner authenticated the wrong, claude.ai-hosted connector on 2026-09-19).
+const CODE_HINT = (s: string) => `Claude Code, in a claude-gw session: /mcp → ${s} → Authenticate`;
 const DESK_HINT = (s: string) => `Claude Desktop: Connectors → ${s} → Connect`;
 
 /** Claude Code keeps MCP OAuth grants in its credentials store under `mcpOAuth`, keyed `<server>|<hash>`. The value is read in-process and discarded. */
@@ -64,6 +66,6 @@ export const openBrainAuth: Artifact = {
 
   async capture(ctx): Promise<Bundle> {
     const s = (ctx.opts as unknown as Opts).server;
-    return { files: [], instructions: [`Authorize Open Brain on the target: Claude Code /mcp → ${s} → Authenticate; Claude Desktop Connectors → ${s} → Connect (OAuth grants are device-bound)`] };
+    return { files: [], instructions: [`Authorize Open Brain on the target: Claude Code in a claude-gw session /mcp → ${s} → Authenticate; Claude Desktop Connectors → ${s} → Connect (OAuth grants are device-bound)`] };
   },
 };

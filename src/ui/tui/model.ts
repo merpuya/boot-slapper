@@ -4,7 +4,7 @@ import type { Plan } from "../../engine/plan.ts";
 
 export type Phase = "planning" | "confirm" | "applying" | "verifying" | "done" | "aborted";
 export type StepStatus = "pending" | "running" | "ok" | "failed" | "skipped";
-export interface StepRow { id: string; title: string; interactive: boolean; status: StepStatus; error?: string }
+export interface StepRow { id: string; title: string; interactive: boolean; status: StepStatus; error?: string; skipReason?: string }
 export interface ArtifactRow { id: string; portability: Portability | null; state: State | null; steps: StepRow[]; skipped?: string; checks: Check[] }
 export interface Note { level: "info" | "warn" | "error"; message: string }
 export interface Model { phase: Phase; rows: ArtifactRow[]; notes: Note[]; exitCode: number | null }
@@ -19,7 +19,7 @@ export const initialModel = (): Model => ({ phase: "planning", rows: [], notes: 
 
 export function stateLabel(s: State | null): string {
   if (!s) return "…";
-  if (s.kind === "blocked") return `blocked — ${s.reason}`;
+  if (s.kind === "blocked" || s.kind === "policy-owned") return `${s.kind} — ${s.reason}`;
   const d = "details" in s && s.details?.length ? ` — ${s.details.join("; ")}` : "";
   return `${s.kind}${d}`;
 }
@@ -45,7 +45,7 @@ export function reduce(m: Model, a: Action): Model {
     case "artifact:detected": return { ...m, rows: upsert(m.rows, a.id, (r) => ({ ...r, state: a.state })) };
     case "artifact:skipped": return { ...m, rows: upsert(m.rows, a.id, (r) => ({ ...r, skipped: a.reason, steps: r.steps.map((s) => (s.status === "pending" ? { ...s, status: "skipped" as const } : s)) })) };
     case "step:start": return { ...m, rows: upsert(m.rows, a.artifact, (r) => setStep(r, a.step, { status: "running" })) };
-    case "step:done": return { ...m, rows: upsert(m.rows, a.artifact, (r) => setStep(r, a.step, a.ok ? { status: "ok" } : { status: "failed", error: a.error ?? "failed" })) };
+    case "step:done": return { ...m, rows: upsert(m.rows, a.artifact, (r) => setStep(r, a.step, a.skipped !== undefined ? { status: "skipped", error: undefined, skipReason: a.skipped } : a.ok ? { status: "ok" } : { status: "failed", error: a.error ?? "failed" })) };
     case "prompt:needed": return m;
     case "check:result": return { ...m, rows: upsert(m.rows, a.artifact, (r) => ({ ...r, checks: [...r.checks, a.check] })) };
     case "note": return { ...m, notes: [...m.notes, { level: a.level, message: a.message }] };
