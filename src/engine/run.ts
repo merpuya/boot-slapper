@@ -30,6 +30,12 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
       res.skipped.push(artifact.id);
       continue;
     }
+    if (state.kind === "policy-owned") {
+      // Deliberately not added to `bad`: policy owning one surface says nothing about artifacts that build on it (desktop-skills still works there).
+      ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: `policy-owned: ${state.reason}` });
+      res.skipped.push(artifact.id);
+      continue;
+    }
     for (const r of artifact.requires) {
       if (!planIds.has(r)) {
         ctx.emit({ type: "note", level: "warn", message: `${artifact.id}: requires "${r}", which is not in this plan (--only/--skip) — proceeding anyway` });
@@ -52,12 +58,13 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
       }
       return true;
     });
-    let failed = false;
+    let failed = false; let skippedSteps = 0;
     for (const step of runnable) {
       ctx.emit({ type: "step:start", artifact: artifact.id, step });
       try {
-        await artifact.apply(c, [step]);
-        ctx.emit({ type: "step:done", artifact: artifact.id, step, ok: true });
+        const outcome = await artifact.apply(c, [step]);
+        if (outcome && typeof outcome === "object" && "skipped" in outcome) { skippedSteps++; ctx.emit({ type: "step:done", artifact: artifact.id, step, ok: true, skipped: outcome.skipped }); }
+        else ctx.emit({ type: "step:done", artifact: artifact.id, step, ok: true });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         ctx.emit({ type: "step:done", artifact: artifact.id, step, ok: false, error });
@@ -66,7 +73,10 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
       }
     }
     if (failed) { bad.set(artifact.id, "failed"); res.failed.push(artifact.id); }
-    else if (runnable.length > 0) res.applied.push(artifact.id);
+    else if (runnable.length > 0 && skippedSteps === runnable.length) {
+      ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: "every step skipped itself — see the notes above" });
+      res.skipped.push(artifact.id);
+    } else if (runnable.length > 0) res.applied.push(artifact.id);
     else if (entry.steps.length > 0) {
       ctx.emit({ type: "artifact:skipped", id: artifact.id, reason: "all steps need an interactive session" });
       res.skipped.push(artifact.id);
@@ -90,7 +100,7 @@ export async function verifyAll(profile: Profile, ctx: Ctx): Promise<Record<stri
   return out;
 }
 
-export function worstStatus(checks: Record<string, Check[]>): "ok" | "warn" | "error" {
+export function worstStatus(checks: Record<string, Check[]>): "ok" | "warn" | "error" {   // `info` checks never move it
   const all = Object.values(checks).flat();
   if (all.some((c) => c.status === "error")) return "error";
   if (all.some((c) => c.status === "warn")) return "warn";

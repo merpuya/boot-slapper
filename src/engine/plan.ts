@@ -30,7 +30,7 @@ export async function resolvePlan(profile: Profile, ctx: Ctx, filter: { only?: s
       state = { kind: "blocked", reason: `detect threw: ${msg}` };
     }
     let steps: Step[] = [];
-    if (state.kind !== "blocked") {
+    if (state.kind !== "blocked" && state.kind !== "policy-owned") {
       try {
         steps = artifact.plan(c, state);
       } catch (e) {

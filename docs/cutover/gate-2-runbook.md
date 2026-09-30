@@ -6,7 +6,9 @@ both; memory-sync round-trip verified from each. Until then nothing below is app
 > **Why not the Cornell Windows box.** S3 (`docs/spikes/2026-09-17-s3-windows-managed-policy-owns-desktop.md`,
 > JCB-L-T000692) found `HKLM\SOFTWARE\Policies\Claude` setting 16 keys there, including `inferenceProvider`,
 > `inferenceCredentialHelper` and `managedMcpServers`. `desktop-inference` and `desktop-mcp` are `blocked` by policy that
-> `bs` must not edit, so "green" is unreachable on a managed box by construction. Decided 2026-09-17 (spec §6 gate table,
+> `bs` must not edit, so "green" was unreachable on a managed box by construction. (Since the `policy-owned` outcome, those two
+> artifacts report `policy-owned` — skipped, doctor `info`, dependents still run — instead of `blocked`/red, so a managed box can read
+> green for what applies to it. It is still not a valid gate-2 box: nothing about the desktop write path is proven there.) Decided 2026-09-17 (spec §6 gate table,
 > amended): gate 2 targets `yogaNovo` — Lenovo Yoga Slim 7x Gen 9, personal, no Cornell policy. The Cornell box is still
 > worth onboarding for what does work there (`desktop-skills`, the Code-surface artifacts), but it does not gate the cutover.
 >
@@ -30,10 +32,12 @@ Neither leg meets the condition block yet. What is and is not recorded:
 | `yogaNovo` (Windows) | three desktop artifacts `present` 2026-09-18 (handoff `2026-09-18-1108`) | per-artifact greens only; no whole-box run recorded | none — `docs/evidence/` has never existed in this repo | not run |
 | macOS | **`mac-studio` (the spec §6 second Mac) arrived 2026-09-23.** Fresh-entry route: all three desktop artifacts `present` 2026-09-24 after the owner's first in-app apply (entry re-serialized, two owned keys dropped — see CLAUDE.md; `docSatisfies` now reads them as app defaults). Every other artifact present; all four secrets in place | **all checks passed** 2026-09-24 13:50 EDT: 67 ok, 0 errors, 3 warns (a `/private/var` temp memory dir, the live-session `mct` transcript, the Code-side Open Brain grant pending a `claude-gw` session) | `docs/evidence/mac-studio-2026-09-24.json` | push half done (this box created and pushed the `boot-slapper` memory project, claude-memory-sync `1649001`); pull half not yet confirmed from another box, and the JCB-AL-ACA34 probe lives in `dotfiles`, which is not mapped here |
 
-Next yogaNovo session, in order: whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against this
-Mac (boot-slapper's own memory dir is *not* mapped here, so pick a mapped project or map it first). The macOS leg waits on
-the second Mac unless the owner decides JCB-AL-ACA34 stands in — a decision, not a finding, and it would leave the
-fresh-entry writer verified on one OS only.
+Next yogaNovo session, in order: whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against
+`mac-studio` — `mecp` is mapped on both, so use it (boot-slapper's own memory dir is *not* mapped on yogaNovo; map `mecp`
+there first). The macOS leg no longer waits on anything but its round-trip's second half: `mac-studio` is the second Mac and
+its whole-box doctor and evidence file exist. The pull direction AV01 → mac-studio is already evidenced by organic auto-sync
+history (`docs/cutover/gate-2-evidence-macos-roundtrip.md`, a draft); the mac-studio → AV01 direction is not observable from
+the repo and needs one check on `JCB-AL-AV01`. Dating note: this table was last verified against the repo on 2026-09-24.
 
 ## On each new box
 
@@ -47,7 +51,7 @@ fresh-entry writer verified on one OS only.
    `bs onboard` again. `bs onboard` is idempotent — run it again after the first Desktop relaunch; the MCP servers and skills land on the
    second pass. Help → Troubleshooting → Copy Managed Configuration Report must show the keys read from the *user store* and the credential validated.
    On any Windows box check `HKLM\SOFTWARE\Policies\Claude` holds only app-behavior keys (`disableAutoUpdates` …) — anything
-   else means IT owns the configuration and `desktop-inference` reports `blocked` by design. On `yogaNovo` this is a
+   else means IT owns the configuration and `desktop-inference` reports `policy-owned` by design. On `yogaNovo` this is a
    **precondition, not a diagnostic**: the key should be absent entirely. If it is set, the box is not the unmanaged box
    this gate needs — stop and re-pick (see the condition block above), because no amount of onboarding will turn those
    two artifacts green.

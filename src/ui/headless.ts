@@ -5,16 +5,16 @@ import type { Io } from "../engine/io.ts";
 import type { Plan } from "../engine/plan.ts";
 
 export interface Sink { write(line: string): void }
-const ICON = { ok: "✓", warn: "!", error: "✗" } as const;
+const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" } as const;
 
 export function headlessReporter(sink: Sink): (e: EngineEvent) => void {
   let checkGroup: string | null = null;
   return (e) => {
     switch (e.type) {
-      case "artifact:detected": sink.write(`==> ${e.id}: ${e.state.kind}${"details" in e.state && e.state.details?.length ? " — " + e.state.details.join("; ") : e.state.kind === "blocked" ? " — " + e.state.reason : ""}`); break;
+      case "artifact:detected": sink.write(`==> ${e.id}: ${e.state.kind}${"details" in e.state && e.state.details?.length ? " — " + e.state.details.join("; ") : e.state.kind === "blocked" || e.state.kind === "policy-owned" ? " — " + e.state.reason : ""}`); break;
       case "artifact:skipped": sink.write(`==> ${e.id}: skipped — ${e.reason}`); break;
       case "step:start": sink.write(`    … ${e.step.title}`); break;
-      case "step:done": sink.write(e.ok ? `    ✓ ${e.step.title}` : `    ✗ ${e.step.title} — ${e.error ?? "failed"}`); break;
+      case "step:done": sink.write(e.skipped !== undefined ? `    - ${e.step.title} — skipped: ${e.skipped}` : e.ok ? `    ✓ ${e.step.title}` : `    ✗ ${e.step.title} — ${e.error ?? "failed"}`); break;
       case "prompt:needed": sink.write(`    ? ${e.step.title}`); break;
       case "check:result":
         if (e.artifact !== checkGroup) { checkGroup = e.artifact; sink.write(`==> ${e.artifact}`); }
@@ -41,11 +41,18 @@ export function runLogWriter(io: Io, dir: string, startedAt: Date) {
 export function renderPlanText(plan: Plan): string {
   const lines: string[] = [];
   for (const p of plan) {
-    const d = "details" in p.state && p.state.details?.length ? " — " + p.state.details.join("; ") : p.state.kind === "blocked" ? " — " + p.state.reason : "";
+    const d = "details" in p.state && p.state.details?.length ? " — " + p.state.details.join("; ") : p.state.kind === "blocked" || p.state.kind === "policy-owned" ? " — " + p.state.reason : "";
     lines.push(`==> ${p.artifact.id} [${p.artifact.portability}]: ${p.state.kind}${d}`);
     for (const s of p.steps) lines.push(`    → ${s.title}${s.interactive ? " (interactive)" : ""}`);
   }
   return lines.join("\n") + "\n";
+}
+
+/** The steps an onboard is about to apply, without the per-artifact `==>` state lines (the live reporter already printed those as artifact:detected). */
+export function renderPlanSteps(plan: Plan): string {
+  const lines: string[] = [];
+  for (const p of plan) for (const s of p.steps) lines.push(`    → ${p.artifact.id}: ${s.title}${s.interactive ? " (interactive)" : ""}`);
+  return lines.length ? "==> Steps to apply\n" + lines.join("\n") + "\n" : "";
 }
 
 export function doctorSummary(checks: Record<string, Check[]>): string {

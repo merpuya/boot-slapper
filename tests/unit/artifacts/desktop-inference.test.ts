@@ -1,3 +1,4 @@
+import { worstStatus } from "../../../src/engine/run.ts";
 import { describe, expect, it } from "vitest";
 import { D, desktopInference, wantedDoc } from "../../../src/artifacts/desktop-inference.ts";
 import { ENTRY_NAME, resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
@@ -193,17 +194,26 @@ describe("desktop-inference (darwin)", () => {
     expect(await desktopInference.detect(ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/a credential helper \(\/opt\/it\/creds\.sh\)/) });
   });
 
-  it("blocked: not installed, too old, or a managed source owns the configuration", async () => {
+  it("blocked (not installed, too old) or policy-owned (a managed source owns the configuration)", async () => {
     const none = await makeCtx({ opts, env: { USER: "aca34" } });
     expect(await desktopInference.detect(none.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/not installed/) });
     const old = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST.replace("1.49585.0", "1.5354.0") } });
     expect(await desktopInference.detect(old.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
     const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
     managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, inferenceProvider: "vertex" }), stderr: "" }));   // plutil -convert json
-    expect(await desktopInference.detect(managed.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\).*Configure Third-Party Inference/) });
+    expect(await desktopInference.detect(managed.ctx)).toMatchObject({ kind: "policy-owned", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\).*Configure Third-Party Inference/) });
     const behaviorOnly = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
     behaviorOnly.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, egressProxyUrl: { host: "proxy", port: 8080 } }), stderr: "" }));   // a nested dict under an app-behavior key is still not a takeover
     expect((await desktopInference.detect(behaviorOnly.ctx)).kind).toBe("absent");
+  });
+
+  it("policy-owned verify: the managed check is info, nothing else is asserted red, and the doctor status stays ok", async () => {
+    const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
+    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ inferenceProvider: "vertex" }), stderr: "" }));
+    const checks = await desktopInference.verify(managed.ctx);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([["installed", "ok"], ["version", "ok"], ["managed", "info"]]);
+    expect(checks[2].message).toMatch(/^policy-owned: managed configuration owns Claude Desktop/);
+    expect(worstStatus({ "desktop-inference": checks })).toBe("ok");
   });
 
   it("apply refuses to touch the library while Desktop is running; the helper step still runs", async () => {

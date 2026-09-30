@@ -142,14 +142,21 @@ describe("desktop-mcp", () => {
     expect((await desktopMcp.verify(ctx)).filter((x) => x.id.startsWith("server.")).map((x) => x.status)).toEqual(["ok", "ok"]);
   });
 
-  it("blocked: Claude Desktop below the version floor, or a managed source owns the configuration; the default satisfied box is neither", async () => {
+  it("blocked below the version floor, policy-owned when a managed source owns the configuration; the default satisfied box is neither", async () => {
     const oldVersion = await makeCtx({ opts, env: { USER: "aca34" }, dirs: [APP], files: { [`${APP}/Contents/Info.plist`]: PLIST.replace("1.49585.0", "1.5354.0"), "/h/.claude/mcp/gateway.json": JSON.stringify(bundle) } });
     expect(await desktopMcp.detect(oldVersion.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/1\.5354\.0 < 1\.19367\.0/) });
     const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
     managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ disableAutoUpdates: true, inferenceProvider: "vertex" }), stderr: "" }));   // plutil -convert json
-    expect(await desktopMcp.detect(managed.ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\)/) });
+    expect(await desktopMcp.detect(managed.ctx)).toMatchObject({ kind: "policy-owned", reason: expect.stringMatching(/managed configuration owns Claude Desktop \(\/Library\/Managed Preferences\/com\.anthropic\.claudefordesktop\.plist sets inferenceProvider\)/) });
     const { ctx } = await box();
     expect((await desktopMcp.detect(ctx)).kind).not.toBe("blocked");
+  });
+
+  it("policy-owned verify: managed is info and no server/bundle checks are reported red", async () => {
+    const managed = await box({ "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist": "bplist" });
+    managed.io.on((c) => c === "plutil", () => ({ code: 0, stdout: JSON.stringify({ inferenceProvider: "vertex" }), stderr: "" }));
+    const checks = await desktopMcp.verify(managed.ctx);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([["version", "ok"], ["managed", "info"]]);
   });
 
   // FR-1: resolvePlan runs every detect before applyPlan runs any step, so on a fresh box the entry does

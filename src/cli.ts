@@ -12,7 +12,7 @@ import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { isMainModule } from "./main-guard.ts";
 import { aca34 } from "./profiles/aca34.ts";
-import { doctorSummary, headlessReporter, renderChecksText, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
+import { doctorSummary, headlessReporter, renderChecksText, renderPlanSteps, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
 import { headlessPrompter, ttyPrompter } from "./ui/prompt.ts";
 import { runTui, type TuiStreams } from "./ui/tui/index.tsx";
 
@@ -94,7 +94,9 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       const ctx = await ctxFor(io, profile, interactive, (e) => { report(e); log.emit(e); });
       stdout.write(`==> boot-slapper onboard — profile ${profile.name} on ${ctx.env.label} (${ctx.env.os}, ${ctx.env.provider}${interactive ? "" : ", --auto"})`);
       const plan = await resolvePlan(profile, ctx, filter);
-      stdout.write(renderPlanText(plan).trimEnd());
+      // resolvePlan already streamed each artifact's detected state through `report`; print only the steps, not the state lines again.
+      const steps = renderPlanSteps(plan).trimEnd();
+      if (steps) stdout.write(steps);
       if (interactive && !(await ctx.prompt.confirm("Apply this plan?"))) { stdout.write("aborted"); await log.done(); return 3; }
       const res = await applyPlan(plan, ctx);
       stdout.write(doctorSummary(res.checks));

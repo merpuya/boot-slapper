@@ -192,4 +192,31 @@ describe("verifyAll / worstStatus", () => {
     expect(worstStatus(checks)).toBe("ok");
     expect(worstStatus({ x: [{ id: "x", status: "warn", message: "" }], y: [{ id: "y", status: "error", message: "" }] })).toBe("error");
   });
+  it("a step that reports { skipped } is not counted as applied: distinct event, artifact lands in res.skipped, dependents still run", async () => {
+    const { ctx, events } = await makeCtx(false);
+    const a: Artifact = { ...art("a", { absent: true }), apply: async () => ({ skipped: "no token" }) };
+    const b = art("b", { absent: true, requires: ["a"], applied: [] });
+    const res = await applyPlan(await resolvePlan(profile([a, b]), ctx), ctx);
+    expect(res.skipped).toEqual(["a"]);
+    expect(res.applied).toEqual(["b"]);
+    expect(res.failed).toEqual([]);
+    const done = events.filter((e) => e.type === "step:done") as Extract<EngineEvent, { type: "step:done" }>[];
+    expect(done.find((e) => e.step.id === "a.do")).toMatchObject({ ok: true, skipped: "no token" });
+    expect(events.find((e) => e.type === "artifact:skipped")).toMatchObject({ id: "a" });
+  });
+  it("a policy-owned artifact is reported skipped, plans no steps, and does not poison its dependents; info checks never move worstStatus", async () => {
+    const { ctx, events } = await makeCtx(false);
+    const owned: Artifact = { ...art("owned", { absent: true }), detect: async () => ({ kind: "policy-owned", reason: "IT owns it" }), plan: () => { throw new Error("plan must not be called"); }, verify: async () => [{ id: "managed", status: "info", message: "policy-owned: IT" }] };
+    const applied: string[] = [];
+    const dep = art("dep", { absent: true, requires: ["owned"], applied });
+    const plan = await resolvePlan(profile([owned, dep]), ctx);
+    expect(plan[0]).toMatchObject({ state: { kind: "policy-owned", reason: "IT owns it" }, steps: [] });
+    const res = await applyPlan(plan, ctx);
+    expect(res.skipped).toEqual(["owned"]);
+    expect(res.applied).toEqual(["dep"]);
+    expect(applied).toEqual(["dep.do"]);
+    expect(events.find((e) => e.type === "artifact:skipped")).toMatchObject({ id: "owned", reason: "policy-owned: IT owns it" });
+    expect(worstStatus(res.checks)).toBe("ok");
+    expect(worstStatus({ x: [{ id: "i", status: "info", message: "" }, { id: "w", status: "warn", message: "" }] })).toBe("warn");
+  });
 });

@@ -1,4 +1,5 @@
 import { claudeConfig } from "../artifacts/claude-config.ts";
+import { deviceLabel } from "../artifacts/device-label.ts";
 import { desktopInference } from "../artifacts/desktop-inference.ts";
 import { desktopMcp } from "../artifacts/desktop-mcp.ts";
 import { desktopSkills } from "../artifacts/desktop-skills.ts";
@@ -16,7 +17,7 @@ export const aca34: Profile = {
   name: "aca34",
   provider: "gateway",
   surfaces: ["code", "desktop"],
-  artifacts: [prereqs, claudeConfig, secrets, gatewayLaunch, projectMemory, mct, plugins, desktopInference, desktopMcp, desktopSkills, openBrainAuth, hostedConnectors],
+  artifacts: [prereqs, claudeConfig, deviceLabel, secrets, gatewayLaunch, projectMemory, mct, plugins, desktopInference, desktopMcp, desktopSkills, openBrainAuth, hostedConnectors],
   options: {
     "claude-config": { sshUrl: "git@github.com:merpuya/dotclaude.git", httpsUrl: "https://github.com/merpuya/dotclaude.git" },
     secrets: { services: ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key", "mct-sync-token"] },

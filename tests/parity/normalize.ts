@@ -5,6 +5,7 @@ export const PARITY_MAP: Array<{ id: string; bash: RegExp }> = [
   { id: "claude-config.checkout", bash: /~\/\.claude is (?:a|not a) git checkout/ }, { id: "claude-config.clean", bash: /~\/\.claude (?:clean vs origin|has \d+ changed path)/ },
   { id: "claude-config.settings-valid", bash: /settings\.json (?:is valid JSON|missing or invalid)/ }, { id: "claude-config.hooks-match", bash: /hooks (?:match canonical|block differs)/ },
   { id: "claude-config.template-keys", bash: /(?:carries every template key|settings template drift)/ }, { id: "secrets.mecp-api-key", bash: /(?:MeCP API key present|no MeCP API key)/ },
+  { id: "device-label.label", bash: /device label: / },
   { id: "project-memory.repo", bash: /claude-memory-sync repo (?:present|missing)/ },
   { id: "project-memory.device-config", bash: /(?:device config exists: devices\/|no device config for)/ },
   { id: "project-memory.resolves", bash: /sync-memory list (?:resolves|failed)/ },

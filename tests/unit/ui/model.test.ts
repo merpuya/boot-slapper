@@ -14,6 +14,10 @@ describe("tui model", () => {
     m = run([{ type: "artifact:skipped", id: "a", reason: "needs a tty" }], m);
     expect(m.rows[0]).toMatchObject({ skipped: "needs a tty", steps: [{ status: "ok" }, { status: "skipped" }] });
   });
+  it("a self-skipped step shows as skipped with its reason, not as ok", () => {
+    const m = run([{ type: "plan:resolved", plan }, { type: "step:done", artifact: "a", step: plan[0].steps[0], ok: true, skipped: "no device id" }]);
+    expect(m.rows[0].steps[0]).toMatchObject({ status: "skipped", skipReason: "no device id" });
+  });
   it("a failed step keeps its error; checks and notes accumulate; unknown artifacts are upserted; summary counts", () => {
     const m = run([
       { type: "plan:resolved", plan },

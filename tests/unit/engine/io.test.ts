@@ -76,3 +76,16 @@ describe("Io.fetch", () => {
     expect(r.body.length).toBeGreaterThan(0);
   });
 });
+
+describe("RealIo.killLive", () => {
+  it.skipIf(process.platform === "win32")("kills a child an exec is still waiting on, and refuses to start another afterwards", async () => {
+    const io = new RealIo();
+    const pending = io.exec("sleep", ["30"]);
+    const t0 = Date.now();
+    io.killLive();
+    const r = await pending;
+    expect(r.code).not.toBe(0);
+    expect(Date.now() - t0).toBeLessThan(5000);
+    expect(await io.exec("echo", ["hi"])).toMatchObject({ code: 130, stderr: "[interrupted]" });
+  });
+});

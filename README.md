@@ -26,7 +26,7 @@ Fresh box:
 
 Gate-2 cutover material: `docs/cutover/`.
 
-Artifacts (profile `aca34`, surfaces `code` + `desktop`): `prereqs`, `claude-config`, `secrets`, `gateway-launch`,
+Artifacts (profile `aca34`, surfaces `code` + `desktop`): `prereqs`, `claude-config`, `device-label`, `secrets`, `gateway-launch`,
 `project-memory`, `mct`, `plugins`, `desktop-inference`, `desktop-mcp`, `desktop-skills`, `open-brain-auth`, `hosted-connectors`.
 
 Claude Desktop (third-party mode): `bs onboard` writes one configuration named `boot-slapper` into Desktop's per-user config
@@ -35,7 +35,7 @@ a credential helper that prints the key from the secret store, MeCP (headers hel
 and copies the listed dotclaude skills into Cowork's skills plugin. Quit Desktop before applying; relaunch and choose the third-party
 option afterwards. On a fresh box it takes two passes: the first `bs onboard` writes the inference entry (Cowork's plugin directory and
 `ant-did` do not exist yet), and a second `bs onboard` — after relaunching Desktop in third-party mode, opening Cowork once and quitting
-again — completes the MCP servers and the skills. A device whose MDM profile sets more than the update/proxy keys is reported `blocked`:
+again — completes the MCP servers and the skills. A device whose MDM profile sets more than the update/proxy keys is reported `policy-owned` (skipped, doctor `info`; the other artifacts still run):
 IT owns that configuration.
 
 `desktop-inference`'s verify — so `bs doctor`, and therefore `npm run test:parity`, which spawns a live `bs doctor` — makes a real

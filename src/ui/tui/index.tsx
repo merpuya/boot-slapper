@@ -32,6 +32,8 @@ export function runTui(o: TuiOpts): Promise<number> {
       // Anything that then clears the current line — npm's progress spinner cleanup after `npx`, for one — erases
       // the Doctor summary. End on a fresh line so the shell prompt and any such cleanup land below the frame.
       (o.streams?.stdout ?? process.stdout).write("\n");
+      // 130 means Ctrl+C: Ink swallowed SIGINT in raw mode, so a child an artifact started (git clone, npm install) is still running.
+      if (code === 130) o.io.killLive?.();
       resolve(code);
     }, reject);
   });

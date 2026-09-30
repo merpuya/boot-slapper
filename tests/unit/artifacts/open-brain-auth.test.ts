@@ -15,10 +15,10 @@ describe("open-brain-auth", () => {
   it("absent when either grant is missing; the plan is one interactive gate; apply gates then re-checks; nothing leaks", async () => {
     const { ctx, io, events } = await box(false, false);
     const s = await openBrainAuth.detect(ctx);
-    expect(s).toEqual({ kind: "absent", details: [`${D.code} — Claude Code: /mcp → openbrain → Authenticate`, `${D.desktop} — Claude Desktop: Connectors → openbrain → Connect`] });
+    expect(s).toEqual({ kind: "absent", details: [`${D.code} — Claude Code, in a claude-gw session: /mcp → openbrain → Authenticate`, `${D.desktop} — Claude Desktop: Connectors → openbrain → Connect`] });
     expect(io.writes).toEqual([]);
     const steps = openBrainAuth.plan(ctx, s);
-    expect(steps).toEqual([{ id: "open-brain-auth.gate", title: "Authorize Open Brain — Claude Code: /mcp → openbrain → Authenticate; Claude Desktop: Connectors → openbrain → Connect; press Enter when both are done", interactive: true }]);
+    expect(steps).toEqual([{ id: "open-brain-auth.gate", title: "Authorize Open Brain — Claude Code, in a claude-gw session: /mcp → openbrain → Authenticate; Claude Desktop: Connectors → openbrain → Connect; press Enter when both are done", interactive: true }]);
     await openBrainAuth.apply(ctx, steps);
     expect(events.filter((e) => e.type === "note").map((e) => (e as { message: string }).message)).toEqual(["open-brain-auth: still missing — Claude Code has no Open Brain grant; Claude Desktop has no Open Brain grant (re-run bs doctor after authorizing)"]);
     expect(JSON.stringify([...io.files.values(), ...events])).not.toContain("s3cr3t-val");
@@ -39,6 +39,6 @@ describe("open-brain-auth", () => {
   });
   it("headless: the gate step is skipped by the runner (interactive), and capture carries the instruction", async () => {
     const { ctx } = await box(false, false);
-    expect((await openBrainAuth.capture!(ctx)).instructions).toEqual(["Authorize Open Brain on the target: Claude Code /mcp → openbrain → Authenticate; Claude Desktop Connectors → openbrain → Connect (OAuth grants are device-bound)"]);
+    expect((await openBrainAuth.capture!(ctx)).instructions).toEqual(["Authorize Open Brain on the target: Claude Code in a claude-gw session /mcp → openbrain → Authenticate; Claude Desktop Connectors → openbrain → Connect (OAuth grants are device-bound)"]);
   });
 });

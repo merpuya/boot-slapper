@@ -116,4 +116,13 @@ describe("bs cli", () => {
     expect(await main(["onboard", "--headless", "--auto"], { io, stdout: out2, stderr: sink() })).toBe(1);   // --auto implies headless; blocked prereqs → exit 1
     expect(out2.lines[0]).toMatch(/^==> boot-slapper onboard — profile aca34/);
   });
+  it("headless onboard prints each artifact's detected state once; bs plan still prints the full plan", async () => {
+    const io = new FakeIo(); io.on(() => true, () => ({ code: 127, stdout: "", stderr: "" }));
+    const out = sink();
+    await main(["onboard", "--headless", "--auto", "--only", "prereqs"], { io, stdout: out, stderr: sink() });
+    expect(out.lines.filter((l) => l.startsWith("==> prereqs: blocked"))).toHaveLength(1);
+    const plan = sink();
+    expect(await main(["plan", "--only", "prereqs"], { io, stdout: plan, stderr: sink() })).toBe(0);
+    expect(plan.lines.join("\n")).toMatch(/==> prereqs \[device-bound\]: blocked/);
+  });
 });
