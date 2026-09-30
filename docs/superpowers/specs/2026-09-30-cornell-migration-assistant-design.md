@@ -4,25 +4,6 @@
 **Path:** architectural (second profile on the existing engine) · **Sub-project:** B of two (A: `2026-09-09-boot-slapper-design.md`)
 **Work item:** MeCP `project:boot-slapper/cornell-migration-assistant` (BRAINSTORMED → this draft)
 
-> ## Assumption to confirm
->
-> **This draft ASSUMES the target population is *unmanaged personal machines only*.** That is
-> the overnight default for decision D8 (option C, population `personal`); the owner never
-> stated it. Everything below is scoped to it:
->
-> - In scope: a Cornell faculty/staff member's **own** Mac or Windows PC, no Cornell MDM, no
->   `HKLM\SOFTWARE\Policies\Claude` values, who is moving from a personal claude.ai subscription
->   to the Cornell AI Gateway.
-> - Out of scope: **Cornell-managed boxes.** Spike S3 (`docs/spikes/2026-09-17-*`) found that IT
->   policy owns Desktop's inference and MCP configuration there (16 HKLM keys), so
->   `desktop-inference` / `desktop-mcp` are `blocked` by design. On those boxes the tool only
->   *detects and refuses* (§5); Cornell IT policy, and the faculty setup guide, own them.
-> - **If the population is instead "managed boxes" or "guide + IT-policy proposal" (D8 options
->   `C:guide`), most of §3–§7 does not apply** and the deliverable becomes a document. §9 lists
->   what survives either way (the "save this first" generator, §4).
->
-> Confirm or replace this assumption before anyone builds from the draft. Open questions are in §9.
-
 ## 0. Summary
 
 B is a second profile, `cornell-faculty`, on the engine A built: a person who pays for Claude
@@ -48,7 +29,7 @@ per request (the appendix says it is off by default in the pilot).
 
 **Non-goals**
 
-- Managed Cornell boxes (assumption banner). No attempt to override, work around, or edit machine policy — ever.
+- Managed Cornell boxes: IT policy owns Desktop's inference and MCP configuration there (spike S3, 16 HKLM keys), so `desktop-inference` / `desktop-mcp` are `policy-owned` outcomes; the tool only detects and refuses (§5). No attempt to override, work around, or edit machine policy — ever.
 - Migrating claude.ai content server-side. There is no destination account on a gateway box; nothing is uploaded anywhere.
 - Signing the user out of claude.ai, cancelling the subscription, or deleting anything in the first-party Claude store. The tool never takes an irreversible action on the personal account.
 - Automating gateway-key issuance, or MeCP/Open Brain (owner-only) provisioning. Key issuance stays a human step (KB `10-getting-a-key`).
@@ -163,7 +144,7 @@ The engine/UI boundary (A §5) already permits c without engine change.
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| B0 | Confirm assumption + answer Q1–Q4; scaffolding-free (this doc) | owner |
+| B0 | Answer Q1–Q4 (population `personal` is confirmed); scaffolding-free (this doc) | owner |
 | B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7) | unit tests on fixtures (below); no live writes |
 | B2 | `bs migrate` full flow (capture → pause → `--continue` → onboard → verify) on the owner's personal boxes as faculty stand-ins (`yogaNovo`, `mac-studio`, `alienTop` — none Cornell-managed) | doctor green, evidence file, effect-verified (§8) |
 | B3 | Pilot with 2–3 faculty volunteers on personal machines; distribution option b | volunteer sign-off; KB `95-appendix` becomes a pointer |
@@ -183,7 +164,7 @@ Blocking first (they change the design, not just the details).
 
 | # | Question | Why it matters | Default if unanswered |
 |---|---|---|---|
-| Q1 | **Is "unmanaged personal machines" the right population?** Would a faculty member run the Cornell gateway on a personal computer at all, or does Cornell expect gateway use only on managed devices (where IT already configures it)? | If the latter, B's tool has almost no users and the deliverable is the guide + the checklist generator only | Assumed yes (banner) |
+| Q1 | **Is "unmanaged personal machines" the right population?** Would a faculty member run the Cornell gateway on a personal computer at all, or does Cornell expect gateway use only on managed devices (where IT already configures it)? | If the latter, B's tool has almost no users and the deliverable is the guide + the checklist generator only | Confirmed: population is `personal` (D24) |
 | Q2 | Does Cornell IT permit / want a third-party tool that writes Desktop's 3P configuration on personal machines using a faculty gateway key? Who at Cornell reviews it? | Policy and terms, not engineering | Pilot with volunteers, tell IT |
 | Q3 | Does claude.ai offer a data export (Settings → Privacy) that the appendix's "no bulk export" line misses or predates? | The largest item on the checklist. I have not verified this tonight | Say "check for an export"; verify before B1 |
 | Q4 | How does the tool detect "first-party Desktop is signed in" without reading credentials? Is there a non-secret marker (config file key, log line) in the first-party store? | `legacy-subscription` depends on it; reading tokens is prohibited | Skip Desktop sign-in detection; detect store presence only |
