@@ -64,7 +64,7 @@ this is not an engine change.
 | 5 | `desktop-mcp` | translatable | servers from `options.servers` in the profile, initially `cornell_secure_tools` only (headers helper, `x-litellm-api-key`, mapped to the same `cornell-ai-gateway` secret — no second secret). MeCP and Open Brain are **not** in the faculty profile |
 | 6 | `desktop-skills` | portable | source = the user's own skills folder(s) found by the legacy probe, plus an optional profile-shipped starter set; copied into Cowork's skills plugin dir with a manifest row, as A. Never edits foreign skills |
 | 7 | `hosted-connectors` | non-transferable | renders the "you will lose these" list for `instructions.md` |
-| 8 | `claude-config`, `project-memory`, `mct`, `plugins`, `gateway-launch`, `open-brain-auth` | — | **omitted** (owner-specific). `selectArtifacts` must not pull `claude-config` in through `requires` for a desktop-only profile with no Code opt-in — A §2 currently does; see Q7 |
+| 8 | `claude-config`, `project-memory`, `mct`, `plugins`, `gateway-launch`, `open-brain-auth` | — | **omitted** (owner-specific). `selectArtifacts` must not pull `claude-config` in through `requires` for a desktop-only profile with no Code opt-in — A §2 did before the Q7 fix; see Q7 |
 
 Code opt-in adds `gateway-launch` and a minimal Code settings template — deliberately a separate,
 later slice (§7 phase B3) because it depends on Cornell enabling the Code tab per person.
@@ -135,7 +135,7 @@ Faculty do not have Node ≥ 22.5. Options (decision, not made here — Q10):
 | a | Node single-executable (SEA) per OS/arch, downloaded from GitHub releases | signing/notarization for macOS Gatekeeper; SmartScreen reputation on Windows | smallest change; reuses the Ink TUI; still a terminal |
 | b | `install.sh` / `install.ps1` shims (exist) that fetch a pinned Node runtime | no signing, but "paste this into a terminal" is the exact ask B is meant to remove | fine for the pilot cohort only |
 | c | Tauri shell around the engine (the item's original plan) | signing + notarization, updater, per-arch builds (arm64 Windows exists — `yogaNovo` is Snapdragon) | right end state; heavy; the original note's obstacle was MDM boxes, which are now out of scope, so it is *less* blocked than when written |
-| d | No tool: a guide only | none | the fallback if D8 becomes `C:guide` |
+| d | No tool: a guide only | none | the fallback if the owner decides B ships as a guide plus the checklist generator only |
 
 Recommendation: **b for the pilot, c only if the pilot shows people will not open a terminal.**
 The engine/UI boundary (A §5) already permits c without engine change.
@@ -144,8 +144,8 @@ The engine/UI boundary (A §5) already permits c without engine change.
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| B0 | Answer Q1–Q4 (population `personal` is confirmed); scaffolding-free (this doc) | owner |
-| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7) | unit tests on fixtures (below); no live writes |
+| B0 | Answer Q2–Q4 (Q1, the population, is resolved — §9); scaffolding-free (this doc) | owner |
+| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7, done: `requiresFor`) | unit tests on fixtures (below); no live writes |
 | B2 | `bs migrate` full flow (capture → pause → `--continue` → onboard → verify) on the owner's personal boxes as faculty stand-ins (`yogaNovo`, `mac-studio`, `alienTop` — none Cornell-managed) | doctor green, evidence file, effect-verified (§8) |
 | B3 | Pilot with 2–3 faculty volunteers on personal machines; distribution option b | volunteer sign-off; KB `95-appendix` becomes a pointer |
 | B4 | Optional: Code opt-in slice; Tauri shell; cross-device restore (Q8) | pilot result |
@@ -160,28 +160,33 @@ The engine/UI boundary (A §5) already permits c without engine change.
 
 ## 9. Open questions
 
-Blocking first (they change the design, not just the details).
+Blocking first (they change the design, not just the details). Q1 is resolved and moved below.
 
 | # | Question | Why it matters | Default if unanswered |
 |---|---|---|---|
-| Q1 | **Is "unmanaged personal machines" the right population?** Would a faculty member run the Cornell gateway on a personal computer at all, or does Cornell expect gateway use only on managed devices (where IT already configures it)? | If the latter, B's tool has almost no users and the deliverable is the guide + the checklist generator only | Confirmed: population is `personal` (D24) |
 | Q2 | Does Cornell IT permit / want a third-party tool that writes Desktop's 3P configuration on personal machines using a faculty gateway key? Who at Cornell reviews it? | Policy and terms, not engineering | Pilot with volunteers, tell IT |
 | Q3 | Does claude.ai offer a data export (Settings → Privacy) that the appendix's "no bulk export" line misses or predates? | The largest item on the checklist. I have not verified this tonight | Say "check for an export"; verify before B1 |
 | Q4 | How does the tool detect "first-party Desktop is signed in" without reading credentials? Is there a non-secret marker (config file key, log line) in the first-party store? | `legacy-subscription` depends on it; reading tokens is prohibited | Skip Desktop sign-in detection; detect store presence only |
 | Q5 | KB appendix says skills live in `~/Documents/Claude/.claude/skills` (Mac) / `%USERPROFILE%\Claude\.claude\skills` (Win); S1/S4 found Cowork reads `local-agent-mode-sessions/skills-plugin/<org>/<account>/skills` with a manifest and boot-slapper uses that. Which is right for a *personal* (never-3P) box, and does the KB need correcting? | Wrong source dir silently copies nothing | Probe both; treat KB path as a *source* only |
 | Q6 | Is switching a personal Desktop into 3P mode fully reversible for the user (sign back in to claude.ai), and does the separate `Claude-3p` store guarantee the first-party data is untouched? Evidence so far: owner did this on `JCB-AL-ACA34` on 2026-09-16; not verified for a non-technical user's rollback | Determines how strongly the tool can promise "nothing is lost until you cancel" | Promise only "the tool changes nothing in your claude.ai account" |
-| Q7 | `selectArtifacts` pulls off-surface `requires` in (A §4 amendments), so a desktop-only profile still runs `claude-config` (clone of dotclaude, owner-specific). Needs a way to say "desktop-only, no Code" | Engine change; small but real | Make `desktop-skills`'s `requires` conditional on a profile option |
 | Q8 | Cross-device restore (`bs migrate` from a bundle onto another machine): in scope for B, or A's device-move story? | Separate slice; do not entangle | Out of B v1 |
 | Q9 | Support contact and wording. The appendix uses itrequests@business.cornell.edu; should the tool print it, and is it right for a *personal-machine* tool? | User-facing copy | Print the KB address |
 | Q10 | Distribution: §6 option b for the pilot, c later? Who signs/notarizes (personal Apple Developer ID vs a Cornell one)? | Cost and ownership | b |
 | Q11 | Should `cornell_secure_tools` be in the faculty profile, or is that connector managed centrally for everyone (the appendix says Cornell manages "one connector — web search")? | Faculty may already get it another way; double-adding is noise | Include, headers helper, same secret |
 | Q12 | Does Cornell want faculty on the gateway key of the pilot, one key per person, or shared? Rotation story? | The secrets artifact stores whatever they paste; the *key* lifecycle is Cornell's | Per person, out of scope |
 
+### Resolved
+
+| # | Question | Resolution |
+|---|---|---|
+| Q1 | Is "unmanaged personal machines" the right population? | Confirmed: the population is `personal` (owner decision D24, 2026-09-30). Managed boxes get the refusal gate and the checklist-only path (§5), nothing more. |
+| Q7 | `selectArtifacts` pulled off-surface `requires` in, so a desktop-only profile still ran `claude-config` (clone of dotclaude, owner-specific). | Done 2026-10-01. `Artifact` gains optional `requiresFor(opts)`; `desktop-skills` sets `fromClaudeConfig: false` in its profile options to drop `claude-config`, and `selectArtifacts` / `resolveOrder` / `runPlan` all read the option-aware set. Default (option unset) is unchanged, so the owner profile is unaffected. The `cornell-faculty` profile (B1) sets `"desktop-skills": { skills: [...], fromClaudeConfig: false }`. |
+
 ## 10. Relationship to existing work
 
 - **A's spec** — §1 table row B, §5 bundle text ("in B it is what `migrate` consumes"), §2 `bs migrate` reserved. This doc implements those and does not amend A; if approved, A §1 gains a pointer here.
 - **jcb-kb-pipeline** — `95-appendix-migrating-from-personal.md` (and the sibling install pages `20-`/`21-`) are the current human-facing source. B must not contradict them; discrepancies found while drafting are Q5 and Q11. Overlap with the KB's own faculty-setup work items is unchecked from here (jcb-kb-pipeline is a different unit).
-- **Spikes** — S1 (config location), S2 (MCP with headers), S3 (managed Windows policy — the reason for the population assumption), S4 (flat v1, `.ps1` helpers). All B artifacts inherit their constraints.
+- **Spikes** — S1 (config location), S2 (MCP with headers), S3 (managed Windows policy — the reason managed boxes are out of scope; population question Q1 is resolved, see §9), S4 (flat v1, `.ps1` helpers). All B artifacts inherit their constraints.
 - **Program** — `machine-portability`. Nothing in B changes gates 2–3 of the cutover.
 
 ## 11. Not decided here
