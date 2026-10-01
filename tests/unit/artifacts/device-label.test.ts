@@ -82,14 +82,19 @@ describe("device-label unstable-hostname guard", () => {
     });
   const pin = async (r: Awaited<ReturnType<typeof makeCtx>>) => deviceLabel.apply(r.ctx, deviceLabel.plan(r.ctx, await deviceLabel.detect(r.ctx)));
 
-  it("macOS with no HostName: prefers scutil LocalHostName over a reverse-DNS hostname", async () => {
-    const r = await makeCtx({ hostname: "mac-studio.kearnsapuya.net", dirs: ["/h/.claude"] });
-    scutil(r, { LocalHostName: "mac-studio" });
-    const s = await deviceLabel.detect(r.ctx);
-    expect(s.kind).toBe("absent");
-    expect(deviceLabel.plan(r.ctx, s)[0].title).toContain('"mac-studio"');
+  it("single source of truth: the pinned label equals ctx.env.label (what project-memory writes devices/<label>.json under) for every hostname shape and LocalHostName", async () => {
+    for (const [host, local] of [["alexsmacstudio", "Alexs-Mac-Studio"], ["Alexs-Mac-Studio.local", "Alexs-Mac-Studio"], ["meMini.kearnsapuya.net", "meMini"]]) {
+      const r = await makeCtx({ hostname: host, dirs: ["/h/.claude"] });
+      scutil(r, { HostName: host, LocalHostName: local });
+      await pin(r);
+      expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL, host).toBe(r.ctx.env.label);
+    }
+    // no HostName, short hostname, LocalHostName set: still the ctx label, never LocalHostName
+    const r = await makeCtx({ hostname: "alexsmacstudio", dirs: ["/h/.claude"] });
+    scutil(r, { LocalHostName: "Alexs-Mac-Studio" });
     await pin(r);
-    expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL).toBe("mac-studio");
+    expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL).toBe(r.ctx.env.label);
+    expect(r.ctx.env.label).toBe("alexsmacstudio");
   });
 
   it("macOS with HostName set: pins the stable hostname even if it is dotted", async () => {
@@ -105,7 +110,8 @@ describe("device-label unstable-hostname guard", () => {
       scutil(r, {});
       const s = await deviceLabel.detect(r.ctx);
       expect(s.kind, host).toBe("blocked");
-      expect((s as { reason: string }).reason).toMatch(/--label|DEVICE_LABEL/);
+      expect((s as { reason: string }).reason).toMatch(/scutil --set HostName/);
+      expect((s as { reason: string }).reason).not.toMatch(/--label/);
       expect(deviceLabel.plan(r.ctx, s)).toEqual([]);
       await expect(deviceLabel.apply(r.ctx, [{ id: "device-label.pin", title: "forced" }])).rejects.toThrow(/reverse|unstable/i);
       expect(r.io.writes).toEqual([]);
@@ -130,18 +136,24 @@ describe("device-label unstable-hostname guard", () => {
     expect(c.message).toMatch(/reverse-DNS/);
   });
 
-  it("drift: a pin that differs from the current unstable macOS hostname is reported as info, never re-pinned", async () => {
+  it("drift: a pin that differs from the current unstable macOS hostname verifies ok (bash doctor parity) with a drift note, never re-pinned", async () => {
     const r = await makeCtx({ hostname: "alexsmacstudio", files: { [LOCAL]: pinned("mac-studio") } });
     scutil(r, {});
     const [c] = await deviceLabel.verify(r.ctx);
-    expect(c.status).toBe("info");
-    expect(c.message).toContain("mac-studio");
+    expect(c.status).toBe("ok");
+    expect(c.message).toMatch(/^device label: mac-studio \(from settings\.local\.json\)/);
     expect(c.message).toContain("alexsmacstudio");
     await deviceLabel.apply(r.ctx, [{ id: "device-label.pin", title: "forced" }]);
     expect(r.io.writes).toEqual([]);
-    // matching hostname or a set HostName: plain ok
-    const r2 = await makeCtx({ hostname: "mac-studio", files: { [LOCAL]: pinned("mac-studio") } });
-    scutil(r2, {});
-    expect((await deviceLabel.verify(r2.ctx))[0].status).toBe("ok");
+  });
+
+  it("detect/verify issue only `scutil --get HostName` (exact arg shape)", async () => {
+    const r = await makeCtx({ hostname: "h", dirs: ["/h/.claude"] });
+    scutil(r, {});
+    await deviceLabel.detect(r.ctx);
+    await deviceLabel.verify(r.ctx);
+    const calls = r.io.calls.filter((c: { cmd: string }) => c.cmd === "scutil");
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c.args).toEqual(["--get", "HostName"]);
   });
 });
