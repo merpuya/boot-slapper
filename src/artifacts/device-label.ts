@@ -48,7 +48,35 @@ async function facts(ctx: Ctx): Promise<Facts> {
   return { pin, localPath, local };
 }
 
-const wanted = (ctx: Ctx) => (ctx.opts as Opts).label || ctx.io.hostname;
+/** A hostname that looks like the product of reverse DNS / DHCP rather than a name the owner chose: dotted (an FQDN from a PTR) or carrying an IPv4 quad. */
+export const looksLikeReverseDns = (h: string): boolean => h.includes(".") || /\d{1,3}[-.]\d{1,3}[-.]\d{1,3}[-.]\d{1,3}/.test(h) || /^ip-\d/i.test(h);
+
+type Wanted = { label: string; source: string } | { refused: string };
+
+async function scutilGet(ctx: Ctx, key: string): Promise<string | null> {
+  const r = await ctx.io.exec("scutil", ["--get", key]);
+  const v = r.code === 0 ? r.stdout.trim() : "";
+  return v || null;
+}
+
+/**
+ * Which label to pin. Explicit profile label wins. On macOS a set scutil HostName makes the hostname stable; without one, uname -n
+ * follows reverse DNS, so prefer scutil LocalHostName (user-set Bonjour name), and if there is none and the hostname looks
+ * reverse-DNS-derived, refuse rather than pin a label that will flip. Other platforms keep the hostname (it is a file, not a PTR).
+ */
+async function wantedLabel(ctx: Ctx): Promise<Wanted> {
+  const explicit = (ctx.opts as Opts).label;
+  if (explicit) return { label: explicit, source: "profile" };
+  const host = ctx.io.hostname;
+  if (ctx.env.os !== "darwin") return { label: host, source: "hostname" };
+  if (await scutilGet(ctx, "HostName")) return { label: host, source: "hostname (scutil HostName set)" };
+  const local = await scutilGet(ctx, "LocalHostName");
+  if (local) return { label: local, source: "scutil LocalHostName" };
+  if (looksLikeReverseDns(host)) {
+    return { refused: `hostname "${host}" looks reverse-DNS-derived and macOS has no scutil HostName or LocalHostName, so the label would change with the network — set one (sudo scutil --set HostName <name>), or pass --label / set DEVICE_LABEL, then re-run` };
+  }
+  return { label: host, source: "hostname" };
+}
 
 export const deviceLabel: Artifact = {
   id: ID, surfaces: ["code"], portability: "device-bound", requires: ["claude-config"],
@@ -57,11 +85,16 @@ export const deviceLabel: Artifact = {
     const f = await facts(ctx);
     if (f.pin) return { kind: "present" };
     if (f.local === "invalid") return { kind: "blocked", reason: `${f.localPath} is not valid JSON — fix it by hand, then re-run` };
-    return { kind: "absent", details: [`no DEVICE_LABEL pin — will pin "${wanted(ctx)}" in ~/.claude/settings.local.json`] };
+    const w = await wantedLabel(ctx);
+    if ("refused" in w) return { kind: "blocked", reason: w.refused };
+    return { kind: "absent", details: [`no DEVICE_LABEL pin — will pin "${w.label}" (${w.source}) in ~/.claude/settings.local.json`] };
   },
 
   plan(ctx, state): Step[] {
-    return state.kind === "absent" ? [{ id: `${ID}.pin`, title: `pin env.DEVICE_LABEL="${wanted(ctx)}" in ~/.claude/settings.local.json` }] : [];
+    if (state.kind !== "absent") return [];
+    // state.details carries the resolved label; recompute is async, so the title reads it back from there.
+    const m = /will pin "([^"]*)"/.exec(state.details?.[0] ?? "");
+    return [{ id: `${ID}.pin`, title: `pin env.DEVICE_LABEL="${m ? m[1] : (ctx.opts as Opts).label || ctx.io.hostname}" in ~/.claude/settings.local.json` }];
   },
 
   async apply(ctx, steps) {
@@ -71,22 +104,33 @@ export const deviceLabel: Artifact = {
       const f = await facts(ctx);
       if (f.pin) { ctx.emit({ type: "note", level: "info", message: `device-label: already pinned (${f.pin.value} from ${f.pin.source}) — left alone` }); continue; }
       if (f.local === "invalid") throw new Error(`${f.localPath} is not valid JSON — fix it by hand, then re-run`);
+      const w = await wantedLabel(ctx);
+      if ("refused" in w) throw new Error(`unstable hostname — ${w.refused}`);
       const current = f.local ?? {};
       const env = typeof current.env === "object" && current.env !== null && !Array.isArray(current.env) ? (current.env as Record<string, unknown>) : {};
-      await ctx.io.writeFile(f.localPath, stableJson({ ...current, env: { ...env, DEVICE_LABEL: wanted(ctx) } }));
+      await ctx.io.writeFile(f.localPath, stableJson({ ...current, env: { ...env, DEVICE_LABEL: w.label } }));
     }
   },
 
   async verify(ctx): Promise<Check[]> {
     const f = await facts(ctx);
     const claude = pj(ctx.env.os, ctx.env.claudeDir, FILES[0]);
-    if (f.pin) return [{ id: "label", status: "ok", message: `device label: ${f.pin.value} (from ${f.pin.source})` }];
+    if (f.pin) {
+      // Drift is reported, never repaired: re-pinning would orphan the device config the old label named.
+      if (ctx.env.os === "darwin" && ctx.io.hostname !== f.pin.value && !(await scutilGet(ctx, "HostName"))) {
+        return [{ id: "label", status: "info", message: `device label: ${f.pin.value} (from ${f.pin.source}) — pin kept; hostname is now "${ctx.io.hostname}" (no scutil HostName, so it follows the network)` }];
+      }
+      return [{ id: "label", status: "ok", message: `device label: ${f.pin.value} (from ${f.pin.source})` }];
+    }
     if (f.local === "invalid") return [{ id: "label", status: "error", message: `${f.localPath} is not valid JSON — fix it by hand (device-label cannot check or write the pin)` }];
     const host = ctx.io.hostname;
     // Same verdicts as bootstrap.sh --doctor: only macOS with no scutil HostName has an unstable hostname.
     if (ctx.env.os !== "darwin") return [{ id: "label", status: "ok", message: `device label: ${host} (from hostname)` }];
     const r = await ctx.io.exec("scutil", ["--get", "HostName"]);
     if (r.code === 0) return [{ id: "label", status: "ok", message: `device label: ${host} (from hostname, scutil HostName set)` }];
+    if (looksLikeReverseDns(host) && !(await scutilGet(ctx, "LocalHostName"))) {
+      return [{ id: "label", status: "warn", message: `device label: ${host} (from hostname) — unpinned and reverse-DNS-looking; it will change with the network. Set scutil HostName or pin env.DEVICE_LABEL in ${claude}` }];
+    }
     return [{ id: "label", status: "warn", message: `device label: ${host} (from hostname) — unpinned; macOS can change it with the network. Pin env.DEVICE_LABEL in ${claude}` }];
   },
 };
