@@ -1,4 +1,4 @@
-import { withOpts, type Artifact, type Check, type Ctx } from "./artifact.ts";
+import { requiresOf, withOpts, type Artifact, type Check, type Ctx } from "./artifact.ts";
 import type { Profile } from "./profile.ts";
 import { selectArtifacts, type Plan } from "./plan.ts";
 export { resolvePlan } from "./plan.ts";
@@ -36,12 +36,13 @@ export async function applyPlan(plan: Plan, ctx: Ctx): Promise<RunResult> {
       res.skipped.push(artifact.id);
       continue;
     }
-    for (const r of artifact.requires) {
+    const requires = requiresOf(artifact, entry.opts);
+    for (const r of requires) {
       if (!planIds.has(r)) {
         ctx.emit({ type: "note", level: "warn", message: `${artifact.id}: requires "${r}", which is not in this plan (--only/--skip) — proceeding anyway` });
       }
     }
-    const upstream = artifact.requires.find((r) => bad.has(r));
+    const upstream = requires.find((r) => bad.has(r));
     if (upstream) {
       const stored = bad.get(upstream)!;
       const describe = stored === "blocked" ? "is blocked" : stored === "failed" ? "failed" : `was skipped (${stored})`;

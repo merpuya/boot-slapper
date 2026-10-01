@@ -31,7 +31,7 @@ function assertAllowedCall(call: { cmd: string; args: string[] }) {
   if (cmd === "bash") { expect(args[0]).toMatch(/sync-memory$/); expect(args.at(-1)).toBe("list"); return; }
   if (cmd === "plutil") { expect(args.slice(0, 4)).toEqual(["-convert", "json", "-o", "-"]); return; }   // managed plist → json on stdout (top-level keys only)
   if (cmd === "reg") { expect(args[0]).toBe("query"); return; }
-  if (cmd === "scutil") { expect(args).toEqual(["--get", "HostName"]); return; }   // is the macOS hostname pinned (device-label verify)
+  if (cmd === "scutil") { expect(args).toEqual(["--get", "HostName"]); return; }   // is the macOS hostname pinned (device-label detect/verify)
   if (cmd === "pgrep" || cmd === "tasklist") return;   // is Desktop running
   throw new Error(`detect/verify made an unexpected exec call: ${cmd} ${JSON.stringify(args)}`);
 }

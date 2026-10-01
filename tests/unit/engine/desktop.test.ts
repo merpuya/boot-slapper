@@ -104,6 +104,25 @@ describe("desktopInstall", () => {
     expect(versionAtLeast("1.5354.0", "1.19367.0")).toBe(false);
     expect(versionAtLeast(null, "1.19367.0")).toBe(false);
   });
+  it("versionAtLeast orders the real Desktop version strings (mac 1.x -> 2.x, MSIX 4-part) numerically per segment, never as text", () => {
+    const MIN = "1.19367.0";
+    // observed: 2.110.0.0 and 2.2553.0.0 (MSIX, yogaNovo), 2.7032.0 (mac-studio), 1.49585.0 (earlier mac)
+    for (const v of ["2.110.0.0", "2.2553.0.0", "2.7032.0", "1.49585.0", "1.19367.0.0", "10.0.0"]) expect(versionAtLeast(v, MIN), v).toBe(true);
+    for (const v of ["1.5354.0", "1.19366.99", "0.99999.0"]) expect(versionAtLeast(v, MIN), v).toBe(false);
+    expect(versionAtLeast("2.2553.0.0", "2.110.0.0")).toBe(true);    // a 4-digit segment beats a 3-digit one (not "2553" < "110" as text)
+    expect(versionAtLeast("2.110.0.0", "2.2553.0.0")).toBe(false);
+    expect(versionAtLeast("2.7032.0", "2.7032.0.0")).toBe(true);     // missing trailing segments are zero
+    expect(versionAtLeast("2.7032.0", "2.7032.0.1")).toBe(false);
+  });
+  it("versionAtLeast tolerates decoration and never reads an unparseable version as new enough", () => {
+    expect(versionAtLeast(" 2.7032.0\n", "1.19367.0")).toBe(true);
+    expect(versionAtLeast("v2.7032.0", "1.19367.0")).toBe(true);
+    expect(versionAtLeast("2.7032.0-beta.1", "1.19367.0")).toBe(true);    // pre-release suffix on a later major
+    expect(versionAtLeast("1.19367.0-beta", "1.19367.0")).toBe(true);     // suffix ignored: same numeric core
+    expect(versionAtLeast("", "1.19367.0")).toBe(false);
+    expect(versionAtLeast("unknown", "1.19367.0")).toBe(false);
+    expect(versionAtLeast("2.x.0", "1.19367.0")).toBe(false);
+  });
 });
 
 describe("managed sources", () => {
