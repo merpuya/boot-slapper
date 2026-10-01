@@ -145,7 +145,7 @@ The engine/UI boundary (A §5) already permits c without engine change.
 | Phase | Deliverable | Gate |
 |---|---|---|
 | B0 | Answer Q2–Q4 (Q1, the population, is resolved — §9); scaffolding-free (this doc) | owner |
-| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7, done: `requiresFor`) | unit tests on fixtures (below); no live writes |
+| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7: engine support landed via `requiresFor`; faculty profile wiring open, since `desktop-mcp` still requires `claude-config`) | unit tests on fixtures (below); no live writes |
 | B2 | `bs migrate` full flow (capture → pause → `--continue` → onboard → verify) on the owner's personal boxes as faculty stand-ins (`yogaNovo`, `mac-studio`, `alienTop` — none Cornell-managed) | doctor green, evidence file, effect-verified (§8) |
 | B3 | Pilot with 2–3 faculty volunteers on personal machines; distribution option b | volunteer sign-off; KB `95-appendix` becomes a pointer |
 | B4 | Optional: Code opt-in slice; Tauri shell; cross-device restore (Q8) | pilot result |
@@ -179,8 +179,8 @@ Blocking first (they change the design, not just the details). Q1 is resolved an
 
 | # | Question | Resolution |
 |---|---|---|
-| Q1 | Is "unmanaged personal machines" the right population? | Confirmed: the population is `personal` (owner decision D24, 2026-09-30). Managed boxes get the refusal gate and the checklist-only path (§5), nothing more. |
-| Q7 | `selectArtifacts` pulled off-surface `requires` in, so a desktop-only profile still ran `claude-config` (clone of dotclaude, owner-specific). | Done 2026-10-01. `Artifact` gains optional `requiresFor(opts)`; `desktop-skills` sets `fromClaudeConfig: false` in its profile options to drop `claude-config`, and `selectArtifacts` / `resolveOrder` / `runPlan` all read the option-aware set. Default (option unset) is unchanged, so the owner profile is unaffected. The `cornell-faculty` profile (B1) sets `"desktop-skills": { skills: [...], fromClaudeConfig: false }`. |
+| Q1 | Is "unmanaged personal machines" the right population? | Confirmed by the owner on 2026-09-30: the population is `personal`. Managed boxes get the refusal gate and the checklist-only path (§5), nothing more. |
+| Q7 | `selectArtifacts` pulled off-surface `requires` in, so a desktop-only profile still ran `claude-config` (clone of dotclaude, owner-specific). | Engine support landed 2026-10-01; profile wiring still open. `Artifact` gains optional `requiresFor(opts)`; `desktop-skills` sets `fromClaudeConfig: false` in its profile options to drop `claude-config`, and `selectArtifacts` / `resolveOrder` / `runPlan` all read the option-aware set. Default (option unset) is unchanged, so the owner profile is unaffected. **Open:** `desktop-mcp` (row 5, in the faculty profile) still statically requires `claude-config`, so a faculty profile that omits `claude-config` fails resolution until `desktop-mcp` also gets a `requiresFor` and reads its servers from `options.servers` instead of the tracked `gateway.json`. The `cornell-faculty` profile (B1) must not claim Q7 closed until that lands. |
 
 ## 10. Relationship to existing work
 
