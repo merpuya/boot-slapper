@@ -116,9 +116,16 @@ async function probeDesktopInstall(io: Io, os: Os, home: string): Promise<Deskto
   return { installed: await io.exists(p), path: p, version: null, family: null };
 }
 
+/** Numeric core of a dotted version ("v2.7032.0-beta.1" → [2, 7032, 0]); null when it does not start with digits-and-dots. Segments compare as numbers, never as text. */
+function numericCore(v: string): number[] | null {
+  const m = /^v?(\d+(?:\.\d+)*)(?![.\d])/.exec(v.trim());
+  return m ? m[1].split(".").map(Number) : null;
+}
+
 export function versionAtLeast(v: string | null, min: string): boolean {
   if (!v) return false;
-  const a = v.split(".").map(Number), b = min.split(".").map(Number);
+  const a = numericCore(v), b = numericCore(min);
+  if (!a || !b) return false;   // an unparseable version is never "new enough"
   for (let i = 0; i < Math.max(a.length, b.length); i++) { const x = a[i] ?? 0, y = b[i] ?? 0; if (x !== y) return x > y; }
   return true;
 }
