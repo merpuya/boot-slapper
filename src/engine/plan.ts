@@ -1,4 +1,4 @@
-import { resolveOrder, withOpts, type Artifact, type Ctx, type State, type Step } from "./artifact.ts";
+import { requiresOf, resolveOrder, withOpts, type Artifact, type Ctx, type State, type Step } from "./artifact.ts";
 import type { Profile } from "./profile.ts";
 
 export interface PlanEntry { artifact: Artifact; state: State; steps: Step[]; opts: Record<string, unknown> }
@@ -10,10 +10,10 @@ export function selectArtifacts(profile: Profile, filter: { only?: string[]; ski
   const pull = (a: Artifact) => {
     if (wanted.has(a.id)) return;
     wanted.add(a.id);
-    for (const r of a.requires) { const dep = byId.get(r); if (dep) pull(dep); }     // an unknown id is left for resolveOrder to report
+    for (const r of requiresOf(a, profile.options[a.id])) { const dep = byId.get(r); if (dep) pull(dep); }     // an unknown id is left for resolveOrder to report
   };
   for (const a of profile.artifacts) if (a.surfaces.some((s) => profile.surfaces.includes(s))) pull(a);
-  const ordered = resolveOrder(profile.artifacts.filter((a) => wanted.has(a.id)));
+  const ordered = resolveOrder(profile.artifacts.filter((a) => wanted.has(a.id)), (id) => profile.options[id]);
   return ordered.filter((a) => (!filter.only || filter.only.includes(a.id)) && !(filter.skip ?? []).includes(a.id));
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Artifact } from "../../../src/engine/artifact.ts";
+import { desktopSkills } from "../../../src/artifacts/desktop-skills.ts";
 import { selectArtifacts } from "../../../src/engine/plan.ts";
 import type { Profile } from "../../../src/engine/profile.ts";
 
@@ -22,6 +23,18 @@ describe("selectArtifacts", () => {
   it("--only/--skip filter after the pull-in, so a skipped dependency is simply absent from the plan", () => {
     expect(selectArtifacts(profile(["desktop"], [code, desk]), { skip: ["claude-config"] }).map((a) => a.id)).toEqual(["desktop-skills"]);
     expect(selectArtifacts(profile(["desktop"], [code, desk]), { only: ["desktop-skills"] }).map((a) => a.id)).toEqual(["desktop-skills"]);
+  });
+  it("requiresFor drops an option-conditional dependency, so a desktop-only profile does not pull claude-config in (Q7)", () => {
+    const condSkills: Artifact = { ...stub("desktop-skills", ["desktop"], ["claude-config", "desktop-inference"]), requiresFor: (o) => (o.fromClaudeConfig === false ? ["desktop-inference"] : ["claude-config", "desktop-inference"]) };
+    const inf = stub("desktop-inference", ["desktop"]);
+    const p = (opts: Record<string, unknown>): Profile => ({ ...profile(["desktop"], [code, inf, condSkills]), options: { "desktop-skills": opts } });
+    expect(selectArtifacts(p({ fromClaudeConfig: false })).map((a) => a.id)).toEqual(["desktop-inference", "desktop-skills"]);
+    expect(selectArtifacts(p({})).map((a) => a.id)).toEqual(["claude-config", "desktop-inference", "desktop-skills"]);
+  });
+  it("the real desktop-skills artifact: claude-config by default, not when fromClaudeConfig is false", () => {
+    expect(desktopSkills.requiresFor!({})).toEqual(["claude-config", "desktop-inference"]);
+    expect(desktopSkills.requiresFor!({ skills: ["x"] })).toContain("claude-config");
+    expect(desktopSkills.requiresFor!({ fromClaudeConfig: false })).toEqual(["desktop-inference"]);
   });
   it("still throws on an unknown requires id", () => {
     expect(() => selectArtifacts(profile(["desktop"], [stub("x", ["desktop"], ["ghost"])]))).toThrow(/unknown artifact "ghost"/);

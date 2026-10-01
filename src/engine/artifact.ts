@@ -50,6 +50,8 @@ export interface Artifact {
   surfaces: Surface[];
   portability: Portability;
   requires: string[];
+  /** Optional: the dependencies that apply under this profile's options for the artifact. Replaces `requires` when present (it should be a subset or a variant of it; `requires` stays the static, option-free upper bound). */
+  requiresFor?(opts: Record<string, unknown>): string[];
   detect(ctx: Ctx): Promise<State>;
   /** Never called for `blocked` or `policy-owned` states — the engine plans nothing for them. */
   plan(ctx: Ctx, state: Exclude<State, { kind: "policy-owned" }>): Step[];
@@ -63,8 +65,12 @@ export function withOpts(ctx: Ctx, opts: Record<string, unknown> | undefined): C
   return { ...ctx, opts: opts ?? {} };
 }
 
-/** Kahn's algorithm; peers keep declaration order so plans are stable. */
-export function resolveOrder(artifacts: Artifact[]): Artifact[] {
+/** The dependencies of `a` under the profile options `opts` (`requiresFor` when the artifact declares it, else the static `requires`). */
+export const requiresOf = (a: Artifact, opts: Record<string, unknown> = {}): string[] => (a.requiresFor ? a.requiresFor(opts) : a.requires);
+
+/** Kahn's algorithm; peers keep declaration order so plans are stable. `optsOf` supplies each artifact's profile options so option-conditional `requiresFor` is honoured. */
+export function resolveOrder(artifacts: Artifact[], optsOf: (id: string) => Record<string, unknown> | undefined = () => undefined): Artifact[] {
+  const req = (a: Artifact) => requiresOf(a, optsOf(a.id));
   // Check for duplicate IDs before building dependency graph
   const seen = new Set<string>();
   for (const a of artifacts) {
@@ -72,16 +78,16 @@ export function resolveOrder(artifacts: Artifact[]): Artifact[] {
     seen.add(a.id);
   }
   const byId = new Map(artifacts.map((a) => [a.id, a]));
-  for (const a of artifacts) for (const r of a.requires) {
+  for (const a of artifacts) for (const r of req(a)) {
     if (!byId.has(r)) throw new Error(`artifact "${a.id}" requires unknown artifact "${r}"`);
   }
-  const indeg = new Map(artifacts.map((a) => [a.id, a.requires.length]));
+  const indeg = new Map(artifacts.map((a) => [a.id, req(a).length]));
   const out: Artifact[] = [];
-  const ready = artifacts.filter((a) => a.requires.length === 0);
+  const ready = artifacts.filter((a) => req(a).length === 0);
   while (ready.length) {
     const a = ready.shift()!;
     out.push(a);
-    for (const b of artifacts) if (b.requires.includes(a.id)) {
+    for (const b of artifacts) if (req(b).includes(a.id)) {
       const n = indeg.get(b.id)! - 1; indeg.set(b.id, n);
       if (n === 0) ready.push(b);
     }

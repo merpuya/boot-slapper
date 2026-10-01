@@ -14,6 +14,13 @@ describe("resolveOrder", () => {
     const order = resolveOrder([stub("c", ["a", "b"]), stub("a"), stub("b", ["a"])]).map((a) => a.id);
     expect(order).toEqual(["a", "b", "c"]);
   });
+  it("honours requiresFor per the supplied options", () => {
+    const c: Artifact = { ...stub("c", ["a", "b"]), requiresFor: (o) => (o.light ? ["a"] : ["a", "b"]) };
+    // "b" requires "c" here, so with the full set it would cycle; the light option removes the edge.
+    const b = stub("b", ["c"]);
+    expect(() => resolveOrder([stub("a"), b, c])).toThrow(/cycle/);
+    expect(resolveOrder([stub("a"), b, c], (id) => (id === "c" ? { light: true } : undefined)).map((x) => x.id)).toEqual(["a", "c", "b"]);
+  });
   it("throws on a cycle", () => {
     expect(() => resolveOrder([stub("a", ["b"]), stub("b", ["a"])])).toThrow(/cycle/);
   });

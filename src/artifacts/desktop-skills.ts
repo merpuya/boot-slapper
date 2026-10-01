@@ -5,7 +5,8 @@ import { pj, type Os } from "../engine/env.ts";
 import { walkFiles } from "../engine/walk.ts";
 
 const ID = "desktop-skills";
-interface Opts { skills: string[] }
+/** `fromClaudeConfig` (default true): the skills are dotclaude's, so `claude-config` must run first. A profile with no owner dotclaude (e.g. a desktop-only faculty profile) sets it false and drops that dependency. */
+interface Opts { skills: string[]; fromClaudeConfig?: boolean }
 export const D = { copy: "skill to copy:", foreign: "skill exists in Cowork but is not managed by boot-slapper:", manifest: "manifest entry missing:" } as const;
 export interface ManifestSkill { skillId: string; name: string; description: string; creatorType: string; syncManaged?: boolean; updatedAt: string | null; enabled: boolean }
 export interface Manifest { lastUpdated: number; skills: ManifestSkill[] }
@@ -60,6 +61,7 @@ const stale = (s: SkillFacts) => s.ownedHash !== null && (s.ownedHash !== s.hash
 
 export const desktopSkills: Artifact = {
   id: ID, surfaces: ["desktop"], portability: "portable", requires: ["claude-config", "desktop-inference"],
+  requiresFor: (opts) => (opts.fromClaudeConfig === false ? ["desktop-inference"] : ["claude-config", "desktop-inference"]),
 
   async detect(ctx): Promise<State> {
     const f = await facts(ctx);
