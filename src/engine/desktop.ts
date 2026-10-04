@@ -5,6 +5,8 @@ import type { Io } from "./io.ts";
 /** Claude Desktop on 3P — where it keeps its per-user configuration and what boot-slapper owns there. Facts from docs/spikes/2026-09-10-s1-*.md and s2-*.md. */
 export const ORG_SENTINEL = "00000000-0000-4000-8000-000000000001";
 export const MIN_DESKTOP_VERSION = "1.19367.0";     // managed http/sse/stdio MCP entries, static headers, helpers; registry hives no longer merged
+/** win32 only, advisory (prereqs warns, nothing blocks). 2.2553.0.0 is the build S4 (2026-09-18, yogaNovo) validated flat-v1 entries, `.ps1` helpers and `managedMcpServers` on; 2.110.0.0 (the same box, before the upgrade) was never shown to accept them. These MSIX version strings do not order like the macOS ones, so the macOS floor above is not reused. */
+export const WIN32_MIN_DESKTOP_VERSION = "2.2553.0.0";
 export const ENTRY_NAME = "boot-slapper";
 /** Shared "Desktop is running" refusal for artifacts that must not touch the config library while it might be read (Task 4 reuses this for desktop-mcp). */
 export const runningError = (artifactId: string) => `Claude Desktop is running — quit it (⌘Q / File → Exit) and re-run bs onboard --only ${artifactId}`;

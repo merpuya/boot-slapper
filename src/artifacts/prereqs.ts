@@ -1,5 +1,5 @@
 import type { Artifact, Bundle, Check, Ctx, State } from "../engine/artifact.ts";
-import { desktopInstall, MIN_DESKTOP_VERSION, resolveDesktopStore, versionAtLeast } from "../engine/desktop.ts";
+import { desktopInstall, MIN_DESKTOP_VERSION, resolveDesktopStore, versionAtLeast, WIN32_MIN_DESKTOP_VERSION } from "../engine/desktop.ts";
 import type { Io } from "../engine/io.ts";
 
 export async function nodeVersion(io: Io): Promise<{ major: number; minor: number; raw: string } | null> {
@@ -28,6 +28,7 @@ async function checks(ctx: Ctx): Promise<Check[]> {
   const d = await desktopInstall(io, env.os, env.home);
   if (!d.installed) out.push({ id: "desktop", status: "warn", message: `Claude Desktop not found at ${d.path} — install from https://claude.com/download (Windows: the .msix package; the .exe installer has no Cowork)` });
   else if (d.version && !versionAtLeast(d.version, MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${MIN_DESKTOP_VERSION} — update it before the desktop artifacts run` });
+  else if (env.os === "win32" && d.version && !versionAtLeast(d.version, WIN32_MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${WIN32_MIN_DESKTOP_VERSION} — the Windows build the desktop artifacts were validated on (spike S4, 2026-09-18); older builds are untested for flat-entry MCP servers and .ps1 helpers. Update Claude before relying on the desktop artifacts` });
   else out.push({ id: "desktop", status: "ok", message: d.version ? `Claude Desktop ${d.version} at ${d.path}` : `Claude Desktop at ${d.path} (version unknown)` });
   if (d.installed) {
     // Name the store the desktop artifacts will read and write. A wrong pick is otherwise silent — writing a

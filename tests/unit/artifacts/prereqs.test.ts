@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prereqs } from "../../../src/artifacts/prereqs.ts";
+import { resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
 import { makeCtx } from "../helpers.ts";
 
 const allTools = { git: "/usr/bin/git", curl: "/usr/bin/curl", jq: "/opt/jq", python3: "/usr/bin/python3", node: "/usr/local/bin/node", claude: "/h/.local/bin/claude" };
@@ -50,5 +51,20 @@ describe("prereqs", () => {
     const { ctx, io } = await makeCtx({ path: allTools });
     io.on((c) => c === "node", () => ({ code: 1, stdout: "v22.12.0\n", stderr: "broken shim" }));
     expect((await prereqs.verify(ctx)).find((c) => c.id === "node")).toMatchObject({ status: "error", message: "prereq missing: node ≥ 22.5" });
+  });
+  it("win32 only: a Desktop below 2.2553.0.0 warns citing S4; 2.2553.0.0 is ok; macOS is not subject to the Windows floor", async () => {
+    const win = async (version: string) => {
+      const r = await makeCtx({ platform: "win32", home: "C:\\Users\\t", path: allTools });
+      r.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+      r.io.on((c, a) => c === "powershell" && a.some((x) => x.includes("Get-AppxPackage")), () => ({ code: 0, stdout: `Claude_pzs8sxrjxfjjc\t${version}\r\n`, stderr: "" }));
+      resetDesktopProbeCache(r.io);   // makeCtx's probeEnv already cached "not installed" before the powershell stub existed
+      return (await prereqs.verify(r.ctx)).find((c) => c.id === "desktop");
+    };
+    expect(await win("2.110.0.0")).toMatchObject({ status: "warn", message: expect.stringMatching(/2\.110\.0\.0 < 2\.2553\.0\.0.*S4/) });
+    expect(await win("2.2553.0.0")).toMatchObject({ status: "ok" });
+    expect(await win("2.3000.0.0")).toMatchObject({ status: "ok" });
+    const mac = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>" } });
+    mac.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
+    expect((await prereqs.verify(mac.ctx)).find((c) => c.id === "desktop")).toMatchObject({ status: "ok" });
   });
 });
