@@ -59,19 +59,26 @@ async function hostNameSet(ctx: Ctx): Promise<boolean> {
 }
 
 /**
- * Which label to pin. Explicit profile label wins. Otherwise the pin is `ctx.env.label` — the label this run's other artifacts
+ * Which label to pin. An explicit profile label is honoured only when it equals `ctx.env.label` (otherwise refused: two labels). Otherwise the pin is `ctx.env.label` — the label this run's other artifacts
  * (project-memory's devices/<label>.json, mct deviceIds) already use, and what claude-memory-sync `lib/device-label.sh` resolves
  * (uname -n) — so there is one label, never two. On macOS with no scutil HostName, uname -n follows reverse DNS, so if it looks
  * reverse-DNS-derived refuse rather than pin a label that will flip. Other platforms keep the hostname (a file, not a PTR).
  */
 async function wantedLabel(ctx: Ctx): Promise<Wanted> {
   const explicit = (ctx.opts as Opts).label;
-  if (explicit) return { label: explicit, source: "profile" };
   const label = ctx.env.label;
+  if (explicit) {
+    // An explicit label that differs from this run's label would give the box two labels (project-memory / mct / claude-memory-sync
+    // all key on ctx.env.label), orphaning the device config. Same remedies as the unstable-hostname refusal.
+    if (explicit !== label) {
+      return { refused: `device label conflict — profile label "${explicit}" differs from this box's label "${label}" (what project-memory, mct and claude-memory-sync use), so pinning it would give the device two labels — ${ctx.env.os === "darwin" ? `run sudo scutil --set HostName ${explicit}, or add` : "add"} env.DEVICE_LABEL=${explicit} to ~/.claude/settings.local.json by hand (or drop the profile label), then re-run` };
+    }
+    return { label: explicit, source: "profile" };
+  }
   if (ctx.env.os !== "darwin") return { label, source: "hostname" };
   if (await hostNameSet(ctx)) return { label, source: "hostname (scutil HostName set)" };
   if (looksLikeReverseDns(label)) {
-    return { refused: `hostname "${label}" looks reverse-DNS-derived and macOS has no scutil HostName, so the label would change with the network — run sudo scutil --set HostName <name>, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
+    return { refused: `unstable hostname — hostname "${label}" looks reverse-DNS-derived and macOS has no scutil HostName, so the label would change with the network — run sudo scutil --set HostName <name>, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
   }
   return { label, source: "hostname" };
 }
@@ -103,7 +110,7 @@ export const deviceLabel: Artifact = {
       if (f.pin) { ctx.emit({ type: "note", level: "info", message: `device-label: already pinned (${f.pin.value} from ${f.pin.source}) — left alone` }); continue; }
       if (f.local === "invalid") throw new Error(`${f.localPath} is not valid JSON — fix it by hand, then re-run`);
       const w = await wantedLabel(ctx);
-      if ("refused" in w) throw new Error(`unstable hostname — ${w.refused}`);
+      if ("refused" in w) throw new Error(w.refused);
       const current = f.local ?? {};
       const env = typeof current.env === "object" && current.env !== null && !Array.isArray(current.env) ? (current.env as Record<string, unknown>) : {};
       await ctx.io.writeFile(f.localPath, stableJson({ ...current, env: { ...env, DEVICE_LABEL: w.label } }));

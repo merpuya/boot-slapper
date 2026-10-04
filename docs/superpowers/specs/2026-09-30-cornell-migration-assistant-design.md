@@ -80,7 +80,7 @@ machine, produced **before** any change is made.
 - first-party Claude Desktop present and signed in? (probe TBD — Q4; the first-party store is
   `%APPDATA%\Claude` / `~/Library/Application Support/Claude`, distinct from `Claude-3p`, per S1/S4 and decision-log `2026-09-15-claude-desktop-write-all-three-config-stores`)
 - personal skills folders present (the KB names `~/Documents/Claude/.claude/skills/` and
-  `%USERPROFILE%\Claude\.claude\skills\`; S1 found Cowork's actual dir is under `local-agent-mode-sessions/skills-plugin/…` — these disagree, Q5)
+  `%USERPROFILE%\Claude\.claude\skills\`; S1 found Cowork's actual dir is under `local-agent-mode-sessions/skills-plugin/…` — these disagree; resolved in §9 Q5: the `skills-plugin` store is the real one, the KB path is a source to probe only)
 - local MCP servers in `claude_desktop_config.json` (stdio-only per S2): listed by name so the
   user can re-add them; **not copied** (the appendix says they migrate by hand; secrets in `env`/argv make a copy unsafe)
 - Claude Code with an `oauthAccount` (existing `env.provider = "subscription"` probe)
@@ -89,7 +89,7 @@ machine, produced **before** any change is made.
 language, one section per item, each with a "done" checkbox the tool does not track:
 
 1. Conversation history — no automated path; ask the user to check claude.ai's own data
-   export first (Q3), otherwise copy out what matters.
+   export first (Q3, resolved: Settings → Privacy → Export data exists), otherwise copy out what matters.
 2. Projects — copy custom-instructions text; note uploaded files.
 3. Uploaded files — download what is still needed.
 4. Custom instructions — copy from profile settings.
@@ -145,7 +145,7 @@ The engine/UI boundary (A §5) already permits c without engine change.
 | Phase | Deliverable | Gate |
 |---|---|---|
 | B0 | Answer Q2–Q4 (Q1, the population, is resolved — §9); scaffolding-free (this doc) | owner |
-| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7: engine support landed via `requiresFor`; faculty profile wiring open, since `desktop-mcp` still requires `claude-config`) | unit tests on fixtures (below); no live writes |
+| B1 | `cornell-faculty` profile; trimmed `prereqs`; managed gate (§5); `legacy-subscription` read-only detect; `bs migrate --checklist-only`; instructions.md generator; `selectArtifacts` fix (Q7: engine support landed via `requiresFor`; `desktop-mcp`/`desktop-skills` option wiring landed 2026-10-04; the profile file itself is still B1) | unit tests on fixtures (below); no live writes |
 | B2 | `bs migrate` full flow (capture → pause → `--continue` → onboard → verify) on the owner's personal boxes as faculty stand-ins (`yogaNovo`, `mac-studio`, `alienTop` — none Cornell-managed) | doctor green, evidence file, effect-verified (§8) |
 | B3 | Pilot with 2–3 faculty volunteers on personal machines; distribution option b | volunteer sign-off; KB `95-appendix` becomes a pointer |
 | B4 | Optional: Code opt-in slice; Tauri shell; cross-device restore (Q8) | pilot result |
@@ -160,14 +160,12 @@ The engine/UI boundary (A §5) already permits c without engine change.
 
 ## 9. Open questions
 
-Blocking first (they change the design, not just the details). Q1 is resolved and moved below.
+Blocking first (they change the design, not just the details). Q1, Q3, Q5 and Q7 are resolved and moved below.
 
 | # | Question | Why it matters | Default if unanswered |
 |---|---|---|---|
 | Q2 | Does Cornell IT permit / want a third-party tool that writes Desktop's 3P configuration on personal machines using a faculty gateway key? Who at Cornell reviews it? | Policy and terms, not engineering | Pilot with volunteers, tell IT |
-| Q3 | Does claude.ai offer a data export (Settings → Privacy) that the appendix's "no bulk export" line misses or predates? | The largest item on the checklist. I have not verified this tonight | Say "check for an export"; verify before B1 |
 | Q4 | How does the tool detect "first-party Desktop is signed in" without reading credentials? Is there a non-secret marker (config file key, log line) in the first-party store? | `legacy-subscription` depends on it; reading tokens is prohibited | Skip Desktop sign-in detection; detect store presence only |
-| Q5 | KB appendix says skills live in `~/Documents/Claude/.claude/skills` (Mac) / `%USERPROFILE%\Claude\.claude\skills` (Win); S1/S4 found Cowork reads `local-agent-mode-sessions/skills-plugin/<org>/<account>/skills` with a manifest and boot-slapper uses that. Which is right for a *personal* (never-3P) box, and does the KB need correcting? | Wrong source dir silently copies nothing | Probe both; treat KB path as a *source* only |
 | Q6 | Is switching a personal Desktop into 3P mode fully reversible for the user (sign back in to claude.ai), and does the separate `Claude-3p` store guarantee the first-party data is untouched? Evidence so far: owner did this on `JCB-AL-ACA34` on 2026-09-16; not verified for a non-technical user's rollback | Determines how strongly the tool can promise "nothing is lost until you cancel" | Promise only "the tool changes nothing in your claude.ai account" |
 | Q8 | Cross-device restore (`bs migrate` from a bundle onto another machine): in scope for B, or A's device-move story? | Separate slice; do not entangle | Out of B v1 |
 | Q9 | Support contact and wording. The appendix uses itrequests@business.cornell.edu; should the tool print it, and is it right for a *personal-machine* tool? | User-facing copy | Print the KB address |
@@ -180,7 +178,9 @@ Blocking first (they change the design, not just the details). Q1 is resolved an
 | # | Question | Resolution |
 |---|---|---|
 | Q1 | Is "unmanaged personal machines" the right population? | Confirmed by the owner on 2026-09-30: the population is `personal`. Managed boxes get the refusal gate and the checklist-only path (§5), nothing more. |
-| Q7 | `selectArtifacts` pulled off-surface `requires` in, so a desktop-only profile still ran `claude-config` (clone of dotclaude, owner-specific). | Engine support landed 2026-10-01; profile wiring still open. `Artifact` gains optional `requiresFor(opts)`; `desktop-skills` sets `fromClaudeConfig: false` in its profile options to drop `claude-config`, and `selectArtifacts` / `resolveOrder` / `runPlan` all read the option-aware set. Default (option unset) is unchanged, so the owner profile is unaffected. **Open:** `desktop-mcp` (row 5, in the faculty profile) still statically requires `claude-config`, so a faculty profile that omits `claude-config` fails resolution until `desktop-mcp` also gets a `requiresFor` and reads its servers from `options.servers` instead of the tracked `gateway.json`. The `cornell-faculty` profile (B1) must not claim Q7 closed until that lands. |
+| Q3 | Does claude.ai offer a data export (Settings → Privacy) that the appendix's "no bulk export" line misses or predates? | Resolved 2026-10-04 from Anthropic's privacy-centre article "Export your Claude data" (privacy.claude.com, fetched that day). **Yes.** Settings → Privacy → Export data, on the web app or Claude Desktop (not mobile). Free/Pro/Max users export their own data; on Team/Enterprise only the Primary Owner can. The export is "conversation data and the user data for your account", delivered as a download link by email that expires after 24 hours and needs the account signed in. Anthropic states the export cannot be imported into another personal account. So the checklist item is "request the export before changing anything, and download it within 24 h": the export is an archive for the user to keep, not a migration path. The page does not say whether Projects' uploaded files are included, so the checklist keeps the separate "download uploaded files you still need" row. **Consequence for the KB:** the appendix's "no bulk export" line is stale or incomplete (KB fix is a separate item for the KB owner). |
+| Q5 | KB appendix path for personal skills vs the Cowork `skills-plugin` store. | Partly resolved 2026-10-04 by inspecting `mac-studio`'s `~/Library/Application Support`. **First-party store** (`Claude/local-agent-mode-sessions/skills-plugin/`) holds two real-UUID org dirs, each with the same account UUID dir beneath it, each carrying `manifest.json`, `.claude-plugin/plugin.json` and `skills/<name>/`. **3P store** (`Claude-3p/…/skills-plugin/`) has the single sentinel org `00000000-0000-4000-8000-000000000001` and one account dir with the same layout. So the sentinel org id separates 3P from first-party, and the layout `skills-plugin/<org>/<account>/{manifest.json,skills/}` is the real Cowork skills store in both modes. `~/Documents/Claude/.claude/skills` (the KB path) does **not** exist on this box, which has run Cowork for weeks, so it is not where Cowork keeps skills here. Help pages checked (support.claude.com "Use skills in Claude") do not document an on-disk path either way. **Still open (needs one never-3P probe):** whether a personal box that has *never* run 3P ever has the KB path populated (e.g. by a Cowork folder or a manual drop). Until probed, `legacy-subscription` treats the KB path as an optional extra *source* and `skills-plugin/<org>/<account>/skills` as the primary one. The KB wording fix is queued in jcb-kb-pipeline (both paths, docs path first). |
+| Q7 | `selectArtifacts` pulled off-surface `requires` in, so a desktop-only profile still ran `claude-config` (clone of dotclaude, owner-specific). | Engine support landed 2026-10-01; engine-side wiring completed 2026-10-04. `Artifact` gains optional `requiresFor(opts)`; `desktop-skills` sets `fromClaudeConfig: false` to drop `claude-config`; `desktop-mcp` now also has `requiresFor` and reads profile-supplied `options.servers` (same shape as the bundle's `mcpServers`, replacing `~/.claude/mcp/gateway.json`, never merged with it), dropping `claude-config` when set; `desktop-skills` takes `sourceDir` (default `<claudeDir>/skills`). Tests cover a faculty-shaped option set selecting no `claude-config` and the `cornell_secure_tools` headers helper. **Still open:** the `profiles/cornell-faculty.ts` data file itself is not written or registered (B1, and the §11 naming question). |
 
 ## 10. Relationship to existing work
 

@@ -123,4 +123,17 @@ describe("desktop-skills", () => {
     await desktopSkills.apply(ctx, desktopSkills.plan(ctx, s));
     expect(io.files.has(`${p}/skills/handoff/SKILL.md`)).toBe(true);
   });
+  it("sourceDir reads the named skills from that folder instead of ~/.claude/skills (a faculty user's own folder)", async () => {
+    const SRC = "/h/Documents/Claude/.claude/skills";
+    const { ctx, io } = await base({ [`${SRC}/mine/SKILL.md`]: "---\ndescription: My own skill\n---\n" });
+    const c = { ...ctx, opts: { skills: ["mine"], sourceDir: SRC, fromClaudeConfig: false } };
+    const s = await desktopSkills.detect(c);
+    expect(s).toEqual({ kind: "absent", details: [`${D.copy} mine — will copy to ${PLUGIN}/skills/mine`] });
+    await desktopSkills.apply(c, desktopSkills.plan(c, s));
+    expect(io.files.get(`${PLUGIN}/skills/mine/SKILL.md`)).toContain("My own skill");
+    expect(JSON.parse(io.files.get(`${PLUGIN}/manifest.json`)!).skills.map((x: { name: string }) => x.name)).toContain("mine");
+    // a name that exists only in ~/.claude/skills is not found under sourceDir, and the message names the folder searched
+    const miss = await desktopSkills.detect({ ...ctx, opts: { skills: ["handoff"], sourceDir: SRC } });
+    expect(miss).toMatchObject({ kind: "blocked", reason: expect.stringContaining(SRC) });
+  });
 });
