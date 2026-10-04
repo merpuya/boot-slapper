@@ -19,10 +19,21 @@ describe("device-label", () => {
     expect(deviceLabel.plan(ctx, { kind: "present" })).toEqual([]);
   });
 
-  it("creates settings.local.json when absent; a profile-supplied label beats the hostname", async () => {
-    const { ctx, io } = await makeCtx({ hostname: "h1", opts: { label: "mac-studio.kearnsapuya.net" } });
+  it("creates settings.local.json when absent; a profile-supplied label equal to the box label is pinned", async () => {
+    const { ctx, io } = await makeCtx({ hostname: "h1", opts: { label: "h1" } });
     await deviceLabel.apply(ctx, deviceLabel.plan(ctx, await deviceLabel.detect(ctx)));
-    expect(JSON.parse(io.files.get(LOCAL)!)).toEqual({ env: { DEVICE_LABEL: "mac-studio.kearnsapuya.net" } });
+    expect(JSON.parse(io.files.get(LOCAL)!)).toEqual({ env: { DEVICE_LABEL: "h1" } });
+  });
+
+  it("a profile label that differs from ctx.env.label is refused with the unstable-hostname remedies (no second label)", async () => {
+    const r = await makeCtx({ hostname: "h1", opts: { label: "mac-studio.kearnsapuya.net" }, dirs: ["/h/.claude"] });
+    const s = await deviceLabel.detect(r.ctx);
+    expect(s.kind).toBe("blocked");
+    expect((s as { reason: string }).reason).toMatch(/scutil --set HostName/);
+    expect((s as { reason: string }).reason).toMatch(/env\.DEVICE_LABEL/);
+    expect(deviceLabel.plan(r.ctx, s)).toEqual([]);
+    await expect(deviceLabel.apply(r.ctx, [{ id: "device-label.pin", title: "forced" }])).rejects.toThrow(/two labels/);
+    expect(r.io.writes).toEqual([]);
   });
 
   it("never rewrites an existing pin: env, settings.local.json, or settings.json each count", async () => {
@@ -118,11 +129,11 @@ describe("device-label unstable-hostname guard", () => {
     }
   });
 
-  it("an explicit profile label bypasses the guard; a short hostname and non-macOS hosts still pin", async () => {
-    let r = await makeCtx({ hostname: "x.isp.net", opts: { label: "chosen" }, dirs: ["/h/.claude"] });
+  it("an explicit profile label equal to the box label bypasses the reverse-DNS guard; a short hostname and non-macOS hosts still pin", async () => {
+    let r = await makeCtx({ hostname: "x.isp.net", opts: { label: "x.isp.net" }, dirs: ["/h/.claude"] });
     scutil(r, {});
     await pin(r);
-    expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL).toBe("chosen");
+    expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL).toBe("x.isp.net");
     r = await makeCtx({ platform: "linux", hostname: "lin.corp.example", dirs: ["/h/.claude"] });
     await pin(r);
     expect(JSON.parse(r.io.files.get(LOCAL)!).env.DEVICE_LABEL).toBe("lin.corp.example");

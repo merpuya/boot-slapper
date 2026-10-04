@@ -59,15 +59,22 @@ async function hostNameSet(ctx: Ctx): Promise<boolean> {
 }
 
 /**
- * Which label to pin. Explicit profile label wins. Otherwise the pin is `ctx.env.label` — the label this run's other artifacts
+ * Which label to pin. An explicit profile label is honoured only when it equals `ctx.env.label` (otherwise refused: two labels). Otherwise the pin is `ctx.env.label` — the label this run's other artifacts
  * (project-memory's devices/<label>.json, mct deviceIds) already use, and what claude-memory-sync `lib/device-label.sh` resolves
  * (uname -n) — so there is one label, never two. On macOS with no scutil HostName, uname -n follows reverse DNS, so if it looks
  * reverse-DNS-derived refuse rather than pin a label that will flip. Other platforms keep the hostname (a file, not a PTR).
  */
 async function wantedLabel(ctx: Ctx): Promise<Wanted> {
   const explicit = (ctx.opts as Opts).label;
-  if (explicit) return { label: explicit, source: "profile" };
   const label = ctx.env.label;
+  if (explicit) {
+    // An explicit label that differs from this run's label would give the box two labels (project-memory / mct / claude-memory-sync
+    // all key on ctx.env.label), orphaning the device config. Same remedies as the unstable-hostname refusal.
+    if (explicit !== label) {
+      return { refused: `profile label "${explicit}" differs from this box's label "${label}" (what project-memory, mct and claude-memory-sync use), so pinning it would give the device two labels — run sudo scutil --set HostName ${explicit}, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
+    }
+    return { label: explicit, source: "profile" };
+  }
   if (ctx.env.os !== "darwin") return { label, source: "hostname" };
   if (await hostNameSet(ctx)) return { label, source: "hostname (scutil HostName set)" };
   if (looksLikeReverseDns(label)) {
