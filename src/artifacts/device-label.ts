@@ -71,14 +71,14 @@ async function wantedLabel(ctx: Ctx): Promise<Wanted> {
     // An explicit label that differs from this run's label would give the box two labels (project-memory / mct / claude-memory-sync
     // all key on ctx.env.label), orphaning the device config. Same remedies as the unstable-hostname refusal.
     if (explicit !== label) {
-      return { refused: `profile label "${explicit}" differs from this box's label "${label}" (what project-memory, mct and claude-memory-sync use), so pinning it would give the device two labels — run sudo scutil --set HostName ${explicit}, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
+      return { refused: `device label conflict — profile label "${explicit}" differs from this box's label "${label}" (what project-memory, mct and claude-memory-sync use), so pinning it would give the device two labels — ${ctx.env.os === "darwin" ? `run sudo scutil --set HostName ${explicit}, or add` : "add"} env.DEVICE_LABEL=${explicit} to ~/.claude/settings.local.json by hand (or drop the profile label), then re-run` };
     }
     return { label: explicit, source: "profile" };
   }
   if (ctx.env.os !== "darwin") return { label, source: "hostname" };
   if (await hostNameSet(ctx)) return { label, source: "hostname (scutil HostName set)" };
   if (looksLikeReverseDns(label)) {
-    return { refused: `hostname "${label}" looks reverse-DNS-derived and macOS has no scutil HostName, so the label would change with the network — run sudo scutil --set HostName <name>, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
+    return { refused: `unstable hostname — hostname "${label}" looks reverse-DNS-derived and macOS has no scutil HostName, so the label would change with the network — run sudo scutil --set HostName <name>, or add env.DEVICE_LABEL to ~/.claude/settings.local.json by hand, then re-run` };
   }
   return { label, source: "hostname" };
 }
@@ -110,7 +110,7 @@ export const deviceLabel: Artifact = {
       if (f.pin) { ctx.emit({ type: "note", level: "info", message: `device-label: already pinned (${f.pin.value} from ${f.pin.source}) — left alone` }); continue; }
       if (f.local === "invalid") throw new Error(`${f.localPath} is not valid JSON — fix it by hand, then re-run`);
       const w = await wantedLabel(ctx);
-      if ("refused" in w) throw new Error(`unstable hostname — ${w.refused}`);
+      if ("refused" in w) throw new Error(w.refused);
       const current = f.local ?? {};
       const env = typeof current.env === "object" && current.env !== null && !Array.isArray(current.env) ? (current.env as Record<string, unknown>) : {};
       await ctx.io.writeFile(f.localPath, stableJson({ ...current, env: { ...env, DEVICE_LABEL: w.label } }));

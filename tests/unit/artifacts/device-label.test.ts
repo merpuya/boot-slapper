@@ -32,7 +32,7 @@ describe("device-label", () => {
     expect((s as { reason: string }).reason).toMatch(/scutil --set HostName/);
     expect((s as { reason: string }).reason).toMatch(/env\.DEVICE_LABEL/);
     expect(deviceLabel.plan(r.ctx, s)).toEqual([]);
-    await expect(deviceLabel.apply(r.ctx, [{ id: "device-label.pin", title: "forced" }])).rejects.toThrow(/two labels/);
+    await expect(deviceLabel.apply(r.ctx, [{ id: "device-label.pin", title: "forced" }])).rejects.toThrow(/^device label conflict — .*two labels/);
     expect(r.io.writes).toEqual([]);
   });
 

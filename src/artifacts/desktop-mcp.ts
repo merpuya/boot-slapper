@@ -217,7 +217,7 @@ export const desktopMcp: Artifact = {
     return out;
   },
 
-  async capture(): Promise<Bundle> {
-    return { files: [], instructions: [`${ID}: regenerated on the target from ~/.claude/mcp/gateway.json (tracked in dotclaude); MeCP needs bs secrets set mecp-device-token, Open Brain is authorized in the app (open-brain-auth)`] };
+  async capture(ctx): Promise<Bundle> {
+    return { files: [], instructions: [`${ID}: regenerated on the target from ${(ctx.opts as unknown as Opts).servers ? "the profile's servers option" : "~/.claude/mcp/gateway.json (tracked in dotclaude)"}; MeCP needs bs secrets set mecp-device-token, Open Brain is authorized in the app (open-brain-auth)`] };
   },
 };
