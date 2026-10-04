@@ -306,4 +306,45 @@ describe("desktop-mcp", () => {
     expect(doc.managedMcpServers.find((x: { name: string }) => x.name === "openbrain").oauth).toEqual(appForm);
     expect(doc.managedMcpServers.find((x: { name: string }) => x.name === "extra").oauth).toBe(true);
   });
+  // Spec §3 row 5 / N19: a desktop-only profile supplies its servers, never reads the owner's dotclaude bundle.
+  describe("profile-supplied servers (options.servers)", () => {
+    const tokens = { ANTHROPIC_AUTH_TOKEN: "cornell-ai-gateway" as const };
+    const servers = { cornell_secure_tools: { type: "http", url: "https://api.ai.it.cornell.edu/mcp/", headers: { "x-litellm-api-key": "Bearer ${ANTHROPIC_AUTH_TOKEN}" } } };
+    const CH = "/h/.config/boot-slapper/desktop-mcp-cornell_secure_tools-headers.sh";
+    const facultyBox = () => makeCtx({ opts: { servers, tokens, baseUrl: "https://gw" }, env: { USER: "prof" }, dirs: [APP], files: {
+      [`${APP}/Contents/Info.plist`]: PLIST,
+      [`${L}/_meta.json`]: JSON.stringify({ appliedId: ID, entries: [{ id: ID, name: ENTRY_NAME }] }), [`${L}/${ID}.json`]: JSON.stringify(wantedDoc({ baseUrl: "https://gw" }, INF)),
+      "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID }),
+    } });
+
+    it("requires desktop-inference only, and works with no ~/.claude/mcp/gateway.json at all", async () => {
+      expect(desktopMcp.requiresFor!({ servers })).toEqual(["desktop-inference"]);
+      const { ctx, io } = await facultyBox();
+      secrets(io);
+      expect(io.files.has("/h/.claude/mcp/gateway.json")).toBe(false);
+      const s = await desktopMcp.detect(ctx);
+      expect(s.kind).toBe("absent");
+      await desktopMcp.apply(ctx, desktopMcp.plan(ctx, s));
+      const doc = JSON.parse(io.files.get(`${L}/${ID}.json`)!);
+      expect(doc.managedMcpServers).toEqual([{ name: "cornell_secure_tools", transport: "http", url: "https://api.ai.it.cornell.edu/mcp/", headersHelper: CH, headersHelperTtlSec: 3600 }]);
+      expect(io.files.get(CH)).toContain("'x-litellm-api-key' 'Bearer '");
+      expect(io.files.get(CH)).toContain("cornell-ai-gateway");
+      expect(await desktopMcp.detect(ctx)).toEqual({ kind: "present" });
+      const checks = await desktopMcp.verify(ctx);
+      expect(checks.filter((c) => c.status === "error")).toEqual([]);
+      expect(checks.map((c) => c.id)).toContain("helper.cornell_secure_tools");
+    });
+
+    it("the owner's gateway.json is ignored when servers is set (no MeCP / Open Brain leak into a faculty entry)", async () => {
+      const r = await makeCtx({ opts: { servers, tokens, baseUrl: "https://gw" }, env: { USER: "prof" }, dirs: [APP], files: {
+        [`${APP}/Contents/Info.plist`]: PLIST, "/h/.claude/mcp/gateway.json": JSON.stringify(bundle),
+        [`${L}/_meta.json`]: JSON.stringify({ appliedId: ID, entries: [{ id: ID, name: ENTRY_NAME }] }), [`${L}/${ID}.json`]: JSON.stringify(wantedDoc({ baseUrl: "https://gw" }, INF)),
+        "/h/.config/boot-slapper/desktop.json": JSON.stringify({ entryId: ID }),
+      } });
+      secrets(r.io);
+      await desktopMcp.apply(r.ctx, desktopMcp.plan(r.ctx, await desktopMcp.detect(r.ctx)));
+      const names = (JSON.parse(r.io.files.get(`${L}/${ID}.json`)!).managedMcpServers as Array<{ name: string }>).map((x) => x.name);
+      expect(names).toEqual(["cornell_secure_tools"]);
+    });
+  });
 });

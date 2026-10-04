@@ -11,8 +11,13 @@ import { HELPER_MODE, helperPath, renderHeadersHelper } from "./templates/deskto
 const ID = "desktop-mcp";
 const step = (s: string, title: string): Step => ({ id: `${ID}.${s}`, title });
 /** `baseUrl` is desktop-inference's: it decides whether that artifact adopts a foreign applied entry, which this one must know too. */
-interface Opts { mcpBundle?: string; tokens: Record<string, SecretService>; baseUrl?: string }
 export type BundleDoc = { mcpServers?: Record<string, { type?: string; url?: string; headers?: Record<string, string> }> };
+/**
+ * `servers` (optional): profile-supplied servers, same shape as the bundle's `mcpServers`. When set they REPLACE the tracked
+ * `~/.claude/mcp/gateway.json` (never read, never merged) and the artifact no longer requires `claude-config` — a desktop-only
+ * profile with no owner dotclaude (spec §3 row 5). Unset, behaviour is unchanged.
+ */
+interface Opts { mcpBundle?: string; servers?: NonNullable<BundleDoc["mcpServers"]>; tokens: Record<string, SecretService>; baseUrl?: string }
 /** `oauth` is written as `true`; Desktop rewrites the applied entry after its OAuth flow and normalizes it to an object (`{ mode: "dcr" }` seen 2026-09-16), so equality is by presence. */
 export interface ManagedServer { name: string; transport: "http" | "sse"; url: string; oauth?: true | Record<string, unknown>; headersHelper?: string; headersHelperTtlSec?: number }
 const oauthNorm = (s: ManagedServer): ManagedServer => { const { oauth, ...rest } = s; return oauth ? { ...rest, oauth: true } : rest; };
@@ -78,7 +83,7 @@ interface Facts {
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx; const o = ctx.opts as unknown as Opts;
   const bundlePath = o.mcpBundle ?? pj(env.os, env.claudeDir, "mcp", "gateway.json");
-  const rawBundle = await readJson(io, bundlePath);
+  const rawBundle = o.servers ? ({ mcpServers: o.servers } as unknown as Awaited<ReturnType<typeof readJson>>) : await readJson(io, bundlePath);
   const bundle: BundleDoc | null | "invalid" = rawBundle === null || rawBundle === "invalid" ? rawBundle : (rawBundle as unknown as BundleDoc);
   const install = await desktopInstall(io, env.os, env.home);
   const sources = install.installed ? await managedSources(io, env.os) : [];
@@ -118,6 +123,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
 
 export const desktopMcp: Artifact = {
   id: ID, surfaces: ["desktop"], portability: "translatable", requires: ["desktop-inference", "claude-config"],
+  requiresFor: (opts) => (opts.servers ? ["desktop-inference"] : ["desktop-inference", "claude-config"]),
 
   async detect(ctx): Promise<State> {
     const f = await facts(ctx);

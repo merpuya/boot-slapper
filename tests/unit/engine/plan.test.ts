@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Artifact } from "../../../src/engine/artifact.ts";
+import { claudeConfig } from "../../../src/artifacts/claude-config.ts";
+import { desktopInference } from "../../../src/artifacts/desktop-inference.ts";
+import { desktopMcp } from "../../../src/artifacts/desktop-mcp.ts";
+import { secrets } from "../../../src/artifacts/secrets.ts";
+import { prereqs } from "../../../src/artifacts/prereqs.ts";
 import { desktopSkills } from "../../../src/artifacts/desktop-skills.ts";
 import { selectArtifacts } from "../../../src/engine/plan.ts";
 import type { Profile } from "../../../src/engine/profile.ts";
@@ -35,6 +40,17 @@ describe("selectArtifacts", () => {
     expect(desktopSkills.requiresFor!({})).toEqual(["claude-config", "desktop-inference"]);
     expect(desktopSkills.requiresFor!({ skills: ["x"] })).toContain("claude-config");
     expect(desktopSkills.requiresFor!({ fromClaudeConfig: false })).toEqual(["desktop-inference"]);
+  });
+  it("the real desktop-mcp artifact: claude-config by default, not when the profile supplies servers", () => {
+    expect(desktopMcp.requiresFor!({})).toEqual(["desktop-inference", "claude-config"]);
+    expect(desktopMcp.requiresFor!({ tokens: {} })).toContain("claude-config");
+    expect(desktopMcp.requiresFor!({ servers: { x: { url: "https://x" } } })).toEqual(["desktop-inference"]);
+  });
+  it("a faculty-shaped profile (real desktop-inference/mcp/skills, servers + fromClaudeConfig:false) selects no claude-config; the owner shape still does", () => {
+    const faculty: Profile = { ...profile(["desktop"], [prereqs, secrets, claudeConfig, desktopInference, desktopMcp, desktopSkills]), options: { "desktop-mcp": { servers: { x: { url: "https://x" } }, tokens: {} }, "desktop-skills": { skills: [], fromClaudeConfig: false } } };
+    expect(selectArtifacts(faculty).map((a) => a.id)).toEqual(["prereqs", "secrets", "desktop-inference", "desktop-mcp", "desktop-skills"]);
+    const owner: Profile = { ...profile(["desktop"], [prereqs, secrets, claudeConfig, desktopInference, desktopMcp, desktopSkills]), options: { "desktop-mcp": { tokens: {} }, "desktop-skills": { skills: [] } } };
+    expect(selectArtifacts(owner).map((a) => a.id)).toContain("claude-config");
   });
   it("still throws on an unknown requires id", () => {
     expect(() => selectArtifacts(profile(["desktop"], [stub("x", ["desktop"], ["ghost"])]))).toThrow(/unknown artifact "ghost"/);

@@ -6,7 +6,8 @@ import { walkFiles } from "../engine/walk.ts";
 
 const ID = "desktop-skills";
 /** `fromClaudeConfig` (default true): the skills are dotclaude's, so `claude-config` must run first. A profile with no owner dotclaude (e.g. a desktop-only faculty profile) sets it false and drops that dependency. */
-interface Opts { skills: string[]; fromClaudeConfig?: boolean }
+/** `sourceDir` (default `<claudeDir>/skills`): where the named skills are read from — an absolute path, e.g. a faculty user's own skills folder. */
+interface Opts { skills: string[]; fromClaudeConfig?: boolean; sourceDir?: string }
 export const D = { copy: "skill to copy:", foreign: "skill exists in Cowork but is not managed by boot-slapper:", manifest: "manifest entry missing:" } as const;
 export interface ManifestSkill { skillId: string; name: string; description: string; creatorType: string; syncManaged?: boolean; updatedAt: string | null; enabled: boolean }
 export interface Manifest { lastUpdated: number; skills: ManifestSkill[] }
@@ -25,7 +26,7 @@ export function skillDescription(skillMd: string): string {
 }
 
 interface SkillFacts { name: string; src: string; files: string[]; hash: string; dst: string; inCowork: boolean; ownedHash: string | null; manifest: ManifestSkill | undefined }
-interface Facts { installed: boolean; running: boolean; ran3p: boolean; plugin: string; manifestPath: string; manifest: Manifest | null | "invalid"; skills: SkillFacts[]; missingSources: string[] }
+interface Facts { sourceDir: string; installed: boolean; running: boolean; ran3p: boolean; plugin: string; manifestPath: string; manifest: Manifest | null | "invalid"; skills: SkillFacts[]; missingSources: string[] }
 
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx; const o = ctx.opts as unknown as Opts;
@@ -46,7 +47,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
   const owned = (await readSidecar(io, env.os, env.home)).skills ?? {};
   const skills: SkillFacts[] = []; const missingSources: string[] = [];
   for (const name of o.skills ?? []) {
-    const src = pj(env.os, env.claudeDir, "skills", name);
+    const src = o.sourceDir ? pj(env.os, o.sourceDir, name) : pj(env.os, env.claudeDir, "skills", name);
     const files = await walkFiles(io, env.os, src);
     if (!files.length) { missingSources.push(name); continue; }
     const entries: Array<{ rel: string; content: string }> = [];
@@ -54,7 +55,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
     const dst = pj(env.os, plugin, "skills", name);
     skills.push({ name, src, files, hash: sourceHash(entries), dst, inCowork: ran3p && (await io.isDir(dst)), ownedHash: owned[name] ?? null, manifest: manifest && manifest !== "invalid" ? manifest.skills.find((s) => s.name === name) : undefined });
   }
-  return { installed: install.installed, running: install.installed ? await desktopRunning(io, env.os) : false, ran3p, plugin, manifestPath, manifest, skills, missingSources };
+  return { sourceDir: o.sourceDir ?? pj(env.os, env.claudeDir, "skills"), installed: install.installed, running: install.installed ? await desktopRunning(io, env.os) : false, ran3p, plugin, manifestPath, manifest, skills, missingSources };
 }
 const foreign = (s: SkillFacts) => s.ownedHash === null && (s.inCowork || s.manifest !== undefined);
 const stale = (s: SkillFacts) => s.ownedHash !== null && (s.ownedHash !== s.hash || !s.inCowork);
@@ -66,7 +67,7 @@ export const desktopSkills: Artifact = {
   async detect(ctx): Promise<State> {
     const f = await facts(ctx);
     if (!f.installed) return { kind: "blocked", reason: "Claude Desktop not installed — see desktop-inference" };
-    if (f.missingSources.length) return { kind: "blocked", reason: `skill(s) not in ~/.claude/skills: ${f.missingSources.join(", ")} — they are tracked in dotclaude; check the claude-config artifact or the profile's desktop-skills list` };
+    if (f.missingSources.length) return { kind: "blocked", reason: `skill(s) not in ${f.sourceDir}: ${f.missingSources.join(", ")} — check the source folder (for the default, dotclaude's skills via the claude-config artifact) or the profile's desktop-skills list` };
     if (!f.ran3p) return { kind: "blocked", reason: "Cowork has not run in third-party mode on this device yet — launch Claude Desktop once in third-party mode, open Cowork, then re-run" };
     if (f.manifest === "invalid") return { kind: "blocked", reason: `${f.manifestPath} is not valid JSON — Cowork owns it; fix it by hand` };
     const details: string[] = [];
@@ -142,6 +143,6 @@ export const desktopSkills: Artifact = {
   async capture(ctx): Promise<Bundle> {
     const f = await facts(ctx); const files: Bundle["files"] = [];
     for (const s of f.skills) for (const rel of s.files) { const c = await ctx.io.readFile(pj(ctx.env.os, s.src, ...rel.split("/"))); if (c !== null) files.push({ path: `desktop-skills/${s.name}/${rel}`, content: c }); }
-    return { files, instructions: f.missingSources.length ? [`skills missing from ~/.claude/skills on the source: ${f.missingSources.join(", ")}`] : [] };
+    return { files, instructions: f.missingSources.length ? [`skills missing from ${f.sourceDir} on the source: ${f.missingSources.join(", ")}`] : [] };
   },
 };
