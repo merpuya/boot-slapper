@@ -8,6 +8,7 @@ import type { EngineEvent } from "./engine/events.ts";
 import { RealIo, type Io } from "./engine/io.ts";
 import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
+import { applyGatewayOverride, GATEWAY_URL_ENV, placeholderUrls } from "./engine/gateway-override.ts";
 import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -20,20 +21,15 @@ import { runTui, type TuiStreams } from "./ui/tui/index.tsx";
 const PROFILES: Record<string, Profile> = { aca34, "cornell-faculty": cornellFaculty };
 const SERVICES: SecretService[] = ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key", "mct-sync-token"];
 
-/** The desktop-inference gateway URL if it is still an RFC 2606 `.invalid` placeholder, else null. Applying it would write a dead endpoint into Claude Desktop. */
-function placeholderGateway(profile: Profile): string | null {
-  const url = (profile.options["desktop-inference"] as { baseUrl?: unknown } | undefined)?.baseUrl;
-  if (typeof url !== "string") return null;
-  try { return /\.invalid$/i.test(new URL(url).hostname) ? url : null; } catch { return null; }
-}
-
 const USAGE = `usage: bs — boot-slapper
   bs env
-  bs plan    [--profile aca34] [--only a,b] [--skip a,b]
-  bs doctor  [--profile aca34] [--json] [--headless]
-  bs onboard [--profile aca34] [--auto] [--headless] [--only a,b] [--skip a,b]
+  bs plan    [--profile aca34|cornell-faculty] [--only a,b] [--skip a,b] [--gateway-url <url>]
+  bs doctor  [--profile aca34|cornell-faculty] [--json] [--headless] [--gateway-url <url>]
+  bs onboard [--profile aca34|cornell-faculty] [--auto] [--headless] [--only a,b] [--skip a,b] [--gateway-url <url>]
   bs capture --out <dir> [--profile aca34]
   bs secrets set|check <${SERVICES.join("|")}>
+  --profile cornell-faculty   Claude Desktop only, via the Cornell AI gateway; its gateway URL is a placeholder until you pass --gateway-url or set ${GATEWAY_URL_ENV}
+  --gateway-url <url>   run-time gateway URL for this run (beats ${GATEWAY_URL_ENV}); onboard refuses while any profile URL is still a .invalid placeholder
   --auto      no prompts: interactive steps are skipped with a warning (implies --headless)
   --headless  line output instead of the Ink screens (also the default when stdin is not a terminal or CI is set)
   --only desktop-inference,desktop-mcp,desktop-skills   # just the Claude Desktop (3P) surface`;
@@ -52,12 +48,18 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   try {
     ({ values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: {
       profile: { type: "string", default: "aca34" }, json: { type: "boolean" }, auto: { type: "boolean" }, headless: { type: "boolean" },
-      only: { type: "string" }, skip: { type: "string" }, out: { type: "string" },
+      only: { type: "string" }, "gateway-url": { type: "string" }, skip: { type: "string" }, out: { type: "string" },
     } }));
   } catch (e) { stderr.write(String(e instanceof Error ? e.message : e)); stderr.write(USAGE); return 2; }
 
-  const profile = PROFILES[String(values.profile)];
+  let profile = PROFILES[String(values.profile)];
   if (!profile && cmd !== "env") { stderr.write(`unknown profile: ${String(values.profile)}`); stderr.write(USAGE); return 2; }
+  // Run-time gateway override (flag beats env), applied before any command and so before the onboard placeholder guard.
+  const gatewayUrl = (typeof values["gateway-url"] === "string" ? values["gateway-url"] : "") || io.env[GATEWAY_URL_ENV] || "";
+  if (profile && gatewayUrl) {
+    try { profile = applyGatewayOverride(profile, gatewayUrl); }
+    catch (e) { stderr.write(e instanceof Error ? e.message : String(e)); return 2; }
+  }
   const list = (v: unknown) => (typeof v === "string" && v ? v.split(",").map((s) => s.trim()) : undefined);
   const filter = { only: list(values.only), skip: list(values.skip) };
   const interactive = deps.interactive ?? (!values.auto && Boolean(process.stdin.isTTY));
@@ -84,9 +86,9 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       return status === "error" ? 1 : 0;
     }
     case "onboard": {
-      const placeholder = placeholderGateway(profile);
-      if (placeholder) {
-        stderr.write(`refusing to onboard profile ${profile.name}: the gateway URL is still the placeholder ${placeholder} (a non-resolving .invalid host). Set options["desktop-inference"].baseUrl (and the matching desktop-mcp baseUrl and servers url) in src/profiles/${profile.name}.ts to the published gateway address, then re-run. bs plan and bs doctor still work.`);
+      const placeholders = placeholderUrls(profile);
+      if (placeholders.length) {
+        stderr.write(`refusing to onboard profile ${profile.name}: ${placeholders.length > 1 ? "these URLs are" : "this URL is"} still a placeholder (a non-resolving .invalid host): ${[...new Set(placeholders)].join(", ")}. Pass --gateway-url <url> or set ${GATEWAY_URL_ENV} to the published gateway address (the profile file stays value-free), then re-run. bs plan and bs doctor still work.`);
         return 2;
       }
       const log = runLogWriter(io, pj(os, io.home, ".config", "boot-slapper", "runs"), new Date());

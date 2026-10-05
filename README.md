@@ -9,15 +9,20 @@ Design: `docs/superpowers/specs/2026-09-09-boot-slapper-design.md`.
 ## Commands
 
     bs env                                              # what this box looks like (os, label, detected provider)
-    bs plan    [--profile aca34] [--only a,b]           # what onboard WOULD do — read-only
-    bs doctor  [--profile aca34] [--json] [--headless]  # verify every artifact — read-only, exit 1 on any error
-    bs onboard [--profile aca34] [--auto] [--headless]  # plan → confirm → apply → verify
+    bs plan    [--profile aca34|cornell-faculty] [--only a,b]           # what onboard WOULD do — read-only
+    bs doctor  [--profile aca34|cornell-faculty] [--json] [--headless]  # verify every artifact — read-only, exit 1 on any error
+    bs onboard [--profile aca34|cornell-faculty] [--auto] [--headless]  # plan → confirm → apply → verify
     bs capture --out <dir>                              # portable/translatable state as a bundle dir (spec §5); refuses secret-shaped strings
     bs secrets set|check <service>                      # cornell-ai-gateway | mecp-device-token | mecp-api-key | mct-sync-token
 
 In a terminal `onboard` and `doctor` draw Ink screens (plan → apply → doctor); `--headless` gives the
 line output, and `--auto` (no prompts, interactive steps skipped with a warning) implies it. Piped stdin
 or `CI` also mean headless. Every onboard writes `~/.config/boot-slapper/runs/<timestamp>.jsonl`.
+
+`--profile cornell-faculty` is the Claude Desktop-only gateway profile for faculty/staff. Its gateway URL is a `.invalid`
+placeholder (the repo is public and holds no real address), so `bs onboard` refuses until you supply it at run time:
+`--gateway-url <url>` or the `CORNELL_GATEWAY_URL` env var (flag wins). `bs onboard` refuses while any URL in the profile is still a
+`.invalid` (or `.invalid.`) host; `plan` and `doctor` always run.
 
 Fresh box:
 

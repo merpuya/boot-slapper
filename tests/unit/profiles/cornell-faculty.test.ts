@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { main } from "../../../src/cli.ts";
 import { FakeIo } from "../../../src/engine/io.ts";
 import { wantedServers } from "../../../src/artifacts/desktop-mcp.ts";
+import { applyGatewayOverride, placeholderUrls } from "../../../src/engine/gateway-override.ts";
 import { selectArtifacts } from "../../../src/engine/plan.ts";
 import { cornellFaculty } from "../../../src/profiles/cornell-faculty.ts";
 
@@ -44,9 +45,49 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
     const out = sink(); const err = sink(); const io = new FakeIo();
     io.on(() => true, () => ({ code: 127, stdout: "", stderr: "" }));
     expect(await main(["onboard", "--profile", "cornell-faculty", "--headless", "--auto"], { io, stdout: out, stderr: err })).toBe(2);
-    expect(err.lines.join("\n")).toMatch(/placeholder.*gateway\.example\.invalid[\s\S]*desktop-inference.*baseUrl/);
+    expect(err.lines.join("\n")).toMatch(/placeholder.*gateway\.example\.invalid[\s\S]*--gateway-url[\s\S]*CORNELL_GATEWAY_URL/);
     expect(io.writes).toEqual([]);
     expect(out.lines).toEqual([]);
+  });
+  describe("run-time gateway override (profile file stays value-free)", () => {
+    const run = async (args: string[], env: Record<string, string> = {}, profile = "cornell-faculty") => {
+      const out = sink(); const err = sink(); const io = new FakeIo({ env });
+      io.on(() => true, () => ({ code: 127, stdout: "", stderr: "" }));
+      const code = await main([...args, "--profile", profile, "--headless", "--auto"], { io, stdout: out, stderr: err });
+      return { code, out: out.lines.join("\n"), err: err.lines.join("\n"), io };
+    };
+    it("--gateway-url lifts the onboard guard and reaches the plan (desktop-inference + desktop-mcp)", async () => {
+      const r = await run(["onboard", "--gateway-url", "https://gw.test.example"]);
+      expect(r.err).not.toMatch(/refusing to onboard/);
+      expect(r.out + r.err).not.toMatch(/\.invalid/);
+    });
+    it("CORNELL_GATEWAY_URL does the same, and the flag beats the env var", async () => {
+      expect((await run(["onboard"], { CORNELL_GATEWAY_URL: "https://env.test.example" })).err).not.toMatch(/refusing to onboard/);
+      const both = await run(["onboard", "--gateway-url", "http://[bad"], { CORNELL_GATEWAY_URL: "https://env.test.example" });
+      expect(both.code).toBe(2);
+      expect(both.err).toMatch(/not an http\(s\) URL/);
+    });
+    it("rewrites every gateway URL in the options, keeping paths, without mutating the profile", () => {
+      const p = applyGatewayOverride(cornellFaculty, "https://gw.test.example");
+      const urls = JSON.stringify(p.options).match(/https?:\/\/[^"]+/g) ?? [];
+      expect(urls).toEqual(expect.arrayContaining(["https://gw.test.example", "https://gw.test.example/mcp/"]));
+      expect(placeholderUrls(p)).toEqual([]);
+      expect(placeholderUrls(cornellFaculty).length).toBeGreaterThan(0);
+    });
+    it("guard rejects a trailing-dot .invalid. host", () => {
+      const p = applyGatewayOverride(cornellFaculty, "https://gateway.example.invalid.");
+      expect(placeholderUrls(p).length).toBeGreaterThan(0);
+    });
+    it("guard covers a desktop-mcp URL, not just desktop-inference", () => {
+      const p = applyGatewayOverride(cornellFaculty, "https://gw.test.example");
+      const mcp = p.options["desktop-mcp"] as { servers: Record<string, { url: string }> };
+      const bad = { ...p, options: { ...p.options, "desktop-mcp": { ...mcp, servers: { s: { url: "https://x.example.invalid/mcp/" } } } } };
+      expect(placeholderUrls(bad)).toEqual(["https://x.example.invalid/mcp/"]);
+    });
+    it("--help usage lists --profile cornell-faculty", async () => {
+      const r = await run(["bogus"]);
+      expect(r.err).toMatch(/--profile aca34\|cornell-faculty/);
+    });
   });
   it("maps the ${GATEWAY_KEY} placeholder through tokens: the server is wanted, not skipped, and gets a headers helper", () => {
     const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, never>; tokens: Record<string, string>; baseUrl: string };
