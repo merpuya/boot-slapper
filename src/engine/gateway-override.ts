@@ -24,12 +24,12 @@ export function placeholderUrls(profile: Profile): string[] {
   return urlsIn(profile.options).filter((u) => { try { return INVALID_HOST.test(new URL(u).hostname); } catch { return false; } });
 }
 
-/** Rewrites the profile's gateway origin (the desktop-inference baseUrl) to `override` everywhere it appears in options, keeping paths. The profile file stays value-free. Returns the input unchanged when it has no gateway URL. */
+/** Rewrites the profile's gateway origin (the desktop-inference baseUrl) to `override` everywhere it appears in options, keeping paths. The profile file stays value-free. Returns the input unchanged when it has no gateway URL, or when no URL in it is a `.invalid` placeholder (a profile with real URLs, like aca34, is never re-pointed by a stray env var). */
 export function applyGatewayOverride(profile: Profile, override: string): Profile {
   const next = originOf(override);
   if (!next) throw new Error(`gateway URL override is not an http(s) URL: ${override}`);
   const from = originOf((profile.options["desktop-inference"] as { baseUrl?: unknown } | undefined)?.baseUrl);
-  if (!from) return profile;
+  if (!from || placeholderUrls(profile).length === 0) return profile;
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") return v === from || v.startsWith(from + "/") ? next + v.slice(from.length) : v;
     if (Array.isArray(v)) return v.map(walk);

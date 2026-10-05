@@ -5,6 +5,7 @@ import { FakeIo } from "../../../src/engine/io.ts";
 import { wantedServers } from "../../../src/artifacts/desktop-mcp.ts";
 import { applyGatewayOverride, placeholderUrls } from "../../../src/engine/gateway-override.ts";
 import { selectArtifacts } from "../../../src/engine/plan.ts";
+import { aca34 } from "../../../src/profiles/aca34.ts";
 import { cornellFaculty } from "../../../src/profiles/cornell-faculty.ts";
 
 const sink = () => { const lines: string[] = []; return { lines, write: (l: string) => lines.push(l) }; };
@@ -83,6 +84,18 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
       const mcp = p.options["desktop-mcp"] as { servers: Record<string, { url: string }> };
       const bad = { ...p, options: { ...p.options, "desktop-mcp": { ...mcp, servers: { s: { url: "https://x.example.invalid/mcp/" } } } } };
       expect(placeholderUrls(bad)).toEqual(["https://x.example.invalid/mcp/"]);
+    });
+    it("does not rewrite a profile whose gateway URLs are already real (aca34 + override is a no-op)", async () => {
+      const before = JSON.stringify(aca34.options);
+      expect(before).toContain("api.ai.it.cornell.edu");
+      const p = applyGatewayOverride(aca34, "https://evil.test.example");
+      expect(p).toBe(aca34);
+      expect(JSON.stringify(p.options)).not.toContain("evil.test.example");
+      // an invalid override is still rejected, even for a real-URL profile
+      expect(() => applyGatewayOverride(aca34, "http://[bad")).toThrow(/not an http\(s\) URL/);
+      // and the cli path (flag and env) accepts the call without changing aca34
+      const r = await run(["plan", "--gateway-url", "https://evil.test.example"], { CORNELL_GATEWAY_URL: "https://evil.test.example" }, "aca34");
+      expect(r.code).toBe(0);
     });
     it("--help usage lists --profile cornell-faculty", async () => {
       const r = await run(["bogus"]);
