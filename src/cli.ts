@@ -12,11 +12,12 @@ import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { isMainModule } from "./main-guard.ts";
 import { aca34 } from "./profiles/aca34.ts";
+import { cornellFaculty } from "./profiles/cornell-faculty.ts";
 import { doctorSummary, headlessReporter, renderChecksText, renderPlanSteps, renderPlanText, runLogWriter, type Sink } from "./ui/headless.ts";
 import { headlessPrompter, ttyPrompter } from "./ui/prompt.ts";
 import { runTui, type TuiStreams } from "./ui/tui/index.tsx";
 
-const PROFILES: Record<string, Profile> = { aca34 };
+const PROFILES: Record<string, Profile> = { aca34, "cornell-faculty": cornellFaculty };
 const SERVICES: SecretService[] = ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key", "mct-sync-token"];
 
 const USAGE = `usage: bs — boot-slapper
