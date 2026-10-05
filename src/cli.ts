@@ -20,6 +20,13 @@ import { runTui, type TuiStreams } from "./ui/tui/index.tsx";
 const PROFILES: Record<string, Profile> = { aca34, "cornell-faculty": cornellFaculty };
 const SERVICES: SecretService[] = ["cornell-ai-gateway", "mecp-device-token", "mecp-api-key", "mct-sync-token"];
 
+/** The desktop-inference gateway URL if it is still an RFC 2606 `.invalid` placeholder, else null. Applying it would write a dead endpoint into Claude Desktop. */
+function placeholderGateway(profile: Profile): string | null {
+  const url = (profile.options["desktop-inference"] as { baseUrl?: unknown } | undefined)?.baseUrl;
+  if (typeof url !== "string") return null;
+  try { return /\.invalid$/i.test(new URL(url).hostname) ? url : null; } catch { return null; }
+}
+
 const USAGE = `usage: bs — boot-slapper
   bs env
   bs plan    [--profile aca34] [--only a,b] [--skip a,b]
@@ -77,6 +84,11 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       return status === "error" ? 1 : 0;
     }
     case "onboard": {
+      const placeholder = placeholderGateway(profile);
+      if (placeholder) {
+        stderr.write(`refusing to onboard profile ${profile.name}: the gateway URL is still the placeholder ${placeholder} (a non-resolving .invalid host). Set options["desktop-inference"].baseUrl (and the matching desktop-mcp baseUrl and servers url) in src/profiles/${profile.name}.ts to the published gateway address, then re-run. bs plan and bs doctor still work.`);
+        return 2;
+      }
       const log = runLogWriter(io, pj(os, io.home, ".config", "boot-slapper", "runs"), new Date());
       if (tui) {
         try {

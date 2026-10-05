@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { main } from "../../../src/cli.ts";
 import { FakeIo } from "../../../src/engine/io.ts";
+import { wantedServers } from "../../../src/artifacts/desktop-mcp.ts";
 import { selectArtifacts } from "../../../src/engine/plan.ts";
 import { cornellFaculty } from "../../../src/profiles/cornell-faculty.ts";
 
@@ -38,5 +39,21 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
     expect(await main(["plan", "--profile", "cornell-faculty"], { io, stdout: out, stderr: sink() })).toBe(0);
     expect(io.writes).toEqual([]);
     expect(out.lines.join("\n")).not.toMatch(/claude-config/);
+  });
+  it("onboard refuses while the gateway URL is the .invalid placeholder, naming the field to set, and writes nothing", async () => {
+    const out = sink(); const err = sink(); const io = new FakeIo();
+    io.on(() => true, () => ({ code: 127, stdout: "", stderr: "" }));
+    expect(await main(["onboard", "--profile", "cornell-faculty", "--headless", "--auto"], { io, stdout: out, stderr: err })).toBe(2);
+    expect(err.lines.join("\n")).toMatch(/placeholder.*gateway\.example\.invalid[\s\S]*desktop-inference.*baseUrl/);
+    expect(io.writes).toEqual([]);
+    expect(out.lines).toEqual([]);
+  });
+  it("maps the ${GATEWAY_KEY} placeholder through tokens: the server is wanted, not skipped, and gets a headers helper", () => {
+    const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, never>; tokens: Record<string, string>; baseUrl: string };
+    const w = wantedServers({ mcpServers: mcp.servers }, mcp as never, "darwin", "/h");
+    expect(w.skipped).toEqual([]);
+    expect(w.servers.map((s) => s.name)).toEqual(["cornell_secure_tools"]);
+    expect(w.helpers).toHaveLength(1);
+    expect(w.helpers[0].body).toContain("cornell-ai-gateway");
   });
 });
