@@ -107,6 +107,10 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
       expect(placeholderUrls(mk({ url: "wss://x.example.invalid/ws" }))).toContain("wss://x.example.invalid/ws");
       expect(placeholderUrls(mk({ host: "gateway.invalid" }))).toContain("gateway.invalid");
       expect(placeholderUrls(mk({ host: "gateway.invalid.:8443" }))).toContain("gateway.invalid.:8443");
+      expect(placeholderUrls(mk({ host: "//gw.invalid/" }))).toContain("//gw.invalid/");
+      expect(placeholderUrls(mk({ host: "gw.invalid?x" }))).toContain("gw.invalid?x");
+      expect(placeholderUrls(mk({ host: "gw.invalid#f" }))).toContain("gw.invalid#f");
+      expect(placeholderUrls(mk({ host: "x.invalid.example" }))).not.toContain("x.invalid.example");
       expect(placeholderUrls(mk({ url: "wss://real.test.example/ws" })).filter((u) => u.startsWith("wss"))).toEqual([]);
       // a rewritten profile that still carries a wss placeholder stays refused
       const p = applyGatewayOverride(mk({ url: "wss://x.example.invalid/ws" }) as typeof cornellFaculty, "https://gw.test.example");

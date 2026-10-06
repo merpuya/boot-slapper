@@ -11,8 +11,8 @@ const originOf = (s: unknown): string | null => {
   try { const u = new URL(s); return u.protocol === "https:" || u.protocol === "http:" ? u.origin : null; } catch { return null; }
 };
 
-/** A bare host (no scheme) that is a `.invalid` placeholder, optionally with a port or path: `gateway.invalid`, `gw.example.invalid.:8443`. */
-const BARE_INVALID = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid\.?(:\d+)?(\/.*)?$/i;
+/** A bare or protocol-relative host (no scheme) that is a `.invalid` placeholder, optionally with a port, path, query or fragment: `gateway.invalid`, `//gw.invalid/`, `gw.invalid?x`, `gw.example.invalid.:8443`. */
+const BARE_INVALID = /^(\/\/)?[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid\.?(:\d+)?([/?#].*)?$/i;
 
 const isPlaceholder = (s: string): boolean => {
   if (BARE_INVALID.test(s)) return true;
@@ -43,7 +43,7 @@ function overrideOrigin(override: string): string {
   return u.origin;
 }
 
-/** Rewrites the profile's gateway origin (the desktop-inference baseUrl) to `override` everywhere it appears in options, keeping paths. The profile file stays value-free. Returns the input unchanged when it has no gateway URL, or when no URL in it is a `.invalid` placeholder (a profile with real URLs, like aca34, is never re-pointed by a stray env var). */
+/** Rewrites the profile's gateway origin (the desktop-inference baseUrl) to `override` everywhere it appears in options, keeping paths. The profile file stays value-free. Returns the input unchanged when it has no gateway URL, or when no URL in it is a `.invalid` placeholder (a profile with real URLs, like aca34, is never re-pointed by a stray env var). The override is validated first, so a malformed stray env var (plain http, or carrying a path) is refused for every profile, aca34 included, and blocks `plan`/`doctor`/`onboard` with exit 2 by design: loud beats a silent no-op. */
 export function applyGatewayOverride(profile: Profile, override: string): Profile {
   const next = overrideOrigin(override);
   const from = originOf((profile.options["desktop-inference"] as { baseUrl?: unknown } | undefined)?.baseUrl);
