@@ -1,6 +1,6 @@
 import type { Profile } from "./profile.ts";
 
-/** Env var that overrides the profile's gateway URL at run time (same plain-uppercase style as DEVICE_LABEL). The `--gateway-url` flag beats it. */
+/** Env var that overrides the profile's gateway URL at run time (same plain-uppercase style as DEVICE_LABEL); the `--gateway-url <url>` flag beats it. Either way the value is an https origin only. */
 export const GATEWAY_URL_ENV = "CORNELL_GATEWAY_URL";
 
 /** RFC 2606 `.invalid` placeholder host, with or without the trailing root dot. */
@@ -11,23 +11,41 @@ const originOf = (s: unknown): string | null => {
   try { const u = new URL(s); return u.protocol === "https:" || u.protocol === "http:" ? u.origin : null; } catch { return null; }
 };
 
-/** Every string value in `v` that parses as an http(s) URL, at any depth. */
-function urlsIn(v: unknown, out: string[] = []): string[] {
-  if (typeof v === "string") { if (originOf(v)) out.push(v); }
-  else if (Array.isArray(v)) for (const x of v) urlsIn(x, out);
-  else if (v && typeof v === "object") for (const x of Object.values(v)) urlsIn(x, out);
+/** A bare host (no scheme) that is a `.invalid` placeholder, optionally with a port or path: `gateway.invalid`, `gw.example.invalid.:8443`. */
+const BARE_INVALID = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid\.?(:\d+)?(\/.*)?$/i;
+
+const isPlaceholder = (s: string): boolean => {
+  if (BARE_INVALID.test(s)) return true;
+  try { return INVALID_HOST.test(new URL(s).hostname); } catch { return false; }
+};
+
+function stringsIn(v: unknown, out: string[] = []): string[] {
+  if (typeof v === "string") out.push(v);
+  else if (Array.isArray(v)) for (const x of v) stringsIn(x, out);
+  else if (v && typeof v === "object") for (const x of Object.values(v)) stringsIn(x, out);
   return out;
 }
 
-/** Every URL anywhere in `profile.options` whose hostname is still an `.invalid` placeholder (trailing-dot form included). Applying one would write a dead endpoint. */
+/** Every string anywhere in `profile.options` that points at an `.invalid` placeholder host, whatever the scheme (https, http, wss, ws, ...) or whether it is a bare host with no scheme at all. A trailing-dot host counts. Applying one would write a dead endpoint, so the onboard guard refuses on any hit. */
 export function placeholderUrls(profile: Profile): string[] {
-  return urlsIn(profile.options).filter((u) => { try { return INVALID_HOST.test(new URL(u).hostname); } catch { return false; } });
+  return stringsIn(profile.options).filter(isPlaceholder);
+}
+
+/** Validates a run-time override and returns its origin. https only (plain http would send the gateway key in clear), and the origin alone: a path, query, fragment or credentials would be silently dropped or double-applied by the path-keeping rewrite below, so they are refused rather than guessed at (N19). */
+function overrideOrigin(override: string): string {
+  let u: URL;
+  try { u = new URL(override); } catch { throw new Error(`gateway URL override is not an http(s) URL: ${override}`); }
+  if (u.protocol === "http:") throw new Error(`gateway URL override must use https, not plain http (the gateway key would travel in clear): ${override}`);
+  if (u.protocol !== "https:") throw new Error(`gateway URL override is not an http(s) URL: ${override}`);
+  if ((u.pathname !== "/" && u.pathname !== "") || u.search || u.hash || u.username || u.password) {
+    throw new Error(`gateway URL override must be an https origin only (scheme://host[:port], no path, query, fragment or credentials; the profile supplies paths like /mcp/): ${override}`);
+  }
+  return u.origin;
 }
 
 /** Rewrites the profile's gateway origin (the desktop-inference baseUrl) to `override` everywhere it appears in options, keeping paths. The profile file stays value-free. Returns the input unchanged when it has no gateway URL, or when no URL in it is a `.invalid` placeholder (a profile with real URLs, like aca34, is never re-pointed by a stray env var). */
 export function applyGatewayOverride(profile: Profile, override: string): Profile {
-  const next = originOf(override);
-  if (!next) throw new Error(`gateway URL override is not an http(s) URL: ${override}`);
+  const next = overrideOrigin(override);
   const from = originOf((profile.options["desktop-inference"] as { baseUrl?: unknown } | undefined)?.baseUrl);
   if (!from || placeholderUrls(profile).length === 0) return profile;
   const walk = (v: unknown): unknown => {
