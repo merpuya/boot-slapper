@@ -9,8 +9,8 @@ import type { Profile } from "../engine/profile.ts";
 /**
  * Desktop-only gateway profile for faculty/staff moving off a personal subscription (spec 2026-09-30-cornell-migration-assistant-design.md §3).
  * This repo is public: the profile holds PUBLIC values only. The gateway address below is a deliberate non-resolving placeholder
- * (`.invalid`, RFC 2606), not a real endpoint — it must be replaced with the published address before a pilot run (open question, see MeCP
- * project:boot-slapper/cornell-migration-assistant). Until then `bs plan`/`doctor` run but the live gateway checks cannot pass.
+ * (`.invalid`, RFC 2606), not a real endpoint — each run supplies the published address through `--gateway-url <url>` or the `CORNELL_GATEWAY_URL` env var (flag wins; https origin only, no path), so this file stays value-free. The published address itself is still an open question, see MeCP
+ * project:boot-slapper/cornell-migration-assistant. `bs onboard` refuses while any `.invalid` placeholder remains; `bs plan`/`doctor` run but the live gateway checks cannot pass.
  */
 const GATEWAY = "https://gateway.example.invalid";
 

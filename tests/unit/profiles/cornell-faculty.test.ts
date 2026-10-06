@@ -85,6 +85,37 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
       const bad = { ...p, options: { ...p.options, "desktop-mcp": { ...mcp, servers: { s: { url: "https://x.example.invalid/mcp/" } } } } };
       expect(placeholderUrls(bad)).toEqual(["https://x.example.invalid/mcp/"]);
     });
+    it("refuses a path-bearing, query-bearing or credentialed override (origin only, N19)", () => {
+      for (const bad of ["https://gw.test.example/v1", "https://gw.test.example/mcp/", "https://gw.test.example?x=1", "https://gw.test.example/#f", "https://u:p@gw.test.example"]) {
+        expect(() => applyGatewayOverride(cornellFaculty, bad), bad).toThrow(/origin only/);
+      }
+      expect(() => applyGatewayOverride(cornellFaculty, "https://gw.test.example/")).not.toThrow();
+      expect(() => applyGatewayOverride(cornellFaculty, "https://gw.test.example:8443")).not.toThrow();
+    });
+    it("refuses a plain http: override (N19)", async () => {
+      expect(() => applyGatewayOverride(cornellFaculty, "http://gw.test.example")).toThrow(/https/);
+      const r = await run(["onboard", "--gateway-url", "http://gw.test.example"]);
+      expect(r.code).toBe(2);
+      expect(r.err).toMatch(/https/);
+      const p = await run(["onboard", "--gateway-url", "https://gw.test.example/v1"]);
+      expect(p.code).toBe(2);
+      expect(p.err).toMatch(/origin only/);
+    });
+    it("placeholder guard catches wss:// and bare .invalid hosts, not just http(s) URLs", () => {
+      const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, unknown> };
+      const mk = (extra: unknown) => ({ ...cornellFaculty, options: { ...cornellFaculty.options, "desktop-mcp": { ...mcp, servers: { ...mcp.servers, x: extra } } } });
+      expect(placeholderUrls(mk({ url: "wss://x.example.invalid/ws" }))).toContain("wss://x.example.invalid/ws");
+      expect(placeholderUrls(mk({ host: "gateway.invalid" }))).toContain("gateway.invalid");
+      expect(placeholderUrls(mk({ host: "gateway.invalid.:8443" }))).toContain("gateway.invalid.:8443");
+      expect(placeholderUrls(mk({ host: "//gw.invalid/" }))).toContain("//gw.invalid/");
+      expect(placeholderUrls(mk({ host: "gw.invalid?x" }))).toContain("gw.invalid?x");
+      expect(placeholderUrls(mk({ host: "gw.invalid#f" }))).toContain("gw.invalid#f");
+      expect(placeholderUrls(mk({ host: "x.invalid.example" }))).not.toContain("x.invalid.example");
+      expect(placeholderUrls(mk({ url: "wss://real.test.example/ws" })).filter((u) => u.startsWith("wss"))).toEqual([]);
+      // a rewritten profile that still carries a wss placeholder stays refused
+      const p = applyGatewayOverride(mk({ url: "wss://x.example.invalid/ws" }) as typeof cornellFaculty, "https://gw.test.example");
+      expect(placeholderUrls(p)).toEqual(["wss://x.example.invalid/ws"]);
+    });
     it("does not rewrite a profile whose gateway URLs are already real (aca34 + override is a no-op)", async () => {
       const before = JSON.stringify(aca34.options);
       expect(before).toContain("api.ai.it.cornell.edu");
