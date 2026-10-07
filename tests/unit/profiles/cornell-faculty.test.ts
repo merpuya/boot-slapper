@@ -116,7 +116,7 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
       const p = applyGatewayOverride(mk({ url: "wss://x.example.invalid/ws" }) as typeof cornellFaculty, "https://gw.test.example");
       expect(placeholderUrls(p)).toEqual(["wss://x.example.invalid/ws"]);
     });
-    describe("exotic placeholder spellings (N9 = B: flag the cheap two, accept the other three)", () => {
+    describe("exotic placeholder spellings (owner decision 2026-10-07: flag the two cheap exotic spellings — two-or-more trailing dots and whitespace padding — and accept the other three as author-controlled)", () => {
       const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, unknown> };
       const mk = (s: string) => ({ ...cornellFaculty, options: { ...cornellFaculty.options, "desktop-mcp": { ...mcp, servers: { ...mcp.servers, x: { s } } } } });
       const flagged = (s: string) => placeholderUrls(mk(s)).includes(s);

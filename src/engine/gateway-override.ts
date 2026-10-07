@@ -16,7 +16,7 @@ const BARE_INVALID = /^(\/\/)?[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid\.*(:\d+)?([/?#]
 
 /**
  * Leading/trailing whitespace is trimmed first, so a padded value (` gw.invalid `) is judged by what it names.
- * Accepted, deliberately not flagged (N9 = B; profile strings are author-controlled and none of these is a regression):
+ * Accepted, deliberately not flagged (owner decision 2026-10-07: flag the two cheap exotic spellings — two-or-more trailing dots and whitespace padding — and accept the other three as author-controlled):
  * a bare triple-slash (`///gw.invalid/`), a bare backslash (`\\gw.invalid`), a trailing semicolon (`gw.invalid;`,
  * `https://gw.invalid;/`) and bare userinfo (`user@gw.invalid`). The scheme'd triple-slash, backslash and userinfo
  * forms already resolve to the `.invalid` host through WHATWG URL parsing and are flagged.
