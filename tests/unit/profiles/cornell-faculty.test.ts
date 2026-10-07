@@ -116,6 +116,37 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
       const p = applyGatewayOverride(mk({ url: "wss://x.example.invalid/ws" }) as typeof cornellFaculty, "https://gw.test.example");
       expect(placeholderUrls(p)).toEqual(["wss://x.example.invalid/ws"]);
     });
+    describe("exotic placeholder spellings (N9 = B: flag the cheap two, accept the other three)", () => {
+      const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, unknown> };
+      const mk = (s: string) => ({ ...cornellFaculty, options: { ...cornellFaculty.options, "desktop-mcp": { ...mcp, servers: { ...mcp.servers, x: { s } } } } });
+      const flagged = (s: string) => placeholderUrls(mk(s)).includes(s);
+      it("flags a double (or longer) trailing dot, in a URL and as a bare host", () => {
+        for (const s of ["https://gw.invalid../", "wss://gw.example.invalid../ws", "gw.invalid..", "gw.example.invalid..:8443", "//gw.invalid.../mcp/"]) expect(flagged(s), s).toBe(true);
+      });
+      it("flags a whitespace-padded bare host or URL", () => {
+        for (const s of [" gw.invalid", "gw.invalid ", "\tgw.example.invalid\n", "  gw.invalid.:8443  ", " https://gw.invalid/ "]) expect(flagged(s), JSON.stringify(s)).toBe(true);
+      });
+      it("still leaves look-alikes alone", () => {
+        for (const s of ["x.invalid.example", " x.invalid.example ", "https://x.invalid..example/", "gw.invalidx..", "real.test.example.."]) expect(flagged(s), s).toBe(false);
+      });
+      it("accepted, not flagged: bare triple-slash, bare backslash, trailing semicolon and bare userinfo (author-controlled; no consumer parses them as a gateway URL)", () => {
+        // scheme'd forms already resolve to the .invalid host through WHATWG URL parsing and are flagged
+        for (const s of ["https:///gw.invalid/", "https:\\\\gw.invalid\\mcp", "https://u:p@gw.invalid/"]) expect(flagged(s), s).toBe(true);
+        // the residue is accepted (see the note above isPlaceholder); flip these if the guard ever learns them
+        for (const s of ["///gw.invalid/", "\\\\gw.invalid", "gw.invalid;", "https://gw.invalid;/", "user@gw.invalid"]) expect(flagged(s), s).toBe(false);
+      });
+    });
+    it("a malformed override exits 2 for every command, secrets set included (applied before the command switch)", async () => {
+      const bad = { CORNELL_GATEWAY_URL: "http://gw.test.example" };
+      for (const args of [["env"], ["plan"], ["doctor", "--json"], ["onboard"], ["capture", "--out", "/tmp/qp-never"], ["secrets", "set", "cornell-ai-gateway"], ["secrets", "check", "cornell-ai-gateway"]]) {
+        for (const profile of ["aca34", "cornell-faculty"]) {
+          const r = await run(args, bad, profile);
+          expect(r.code, `${args.join(" ")} --profile ${profile}`).toBe(2);
+          expect(r.err).toMatch(/must use https/);
+          expect(r.io.writes).toEqual([]);
+        }
+      }
+    });
     it("does not rewrite a profile whose gateway URLs are already real (aca34 + override is a no-op)", async () => {
       const before = JSON.stringify(aca34.options);
       expect(before).toContain("api.ai.it.cornell.edu");
