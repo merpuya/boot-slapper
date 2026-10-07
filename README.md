@@ -21,8 +21,8 @@ or `CI` also mean headless. Every onboard writes `~/.config/boot-slapper/runs/<t
 
 `--profile cornell-faculty` is the Claude Desktop-only gateway profile for faculty/staff. Its gateway URL is a `.invalid`
 placeholder (the repo is public and holds no real address), so `bs onboard` refuses until you supply it at run time:
-`--gateway-url <url>` or the `CORNELL_GATEWAY_URL` env var (flag wins). The override must be an https origin only (`https://host[:port]`: no path, query or credentials, no plain http); a malformed override makes every command, including `secrets set`, exit 2 (it is applied before the command switch). `bs onboard` refuses while any URL in the profile is still a
-`.invalid` (or `.invalid.`) host; `plan` and `doctor` run while the override is absent or valid.
+`--gateway-url <url>` or the `CORNELL_GATEWAY_URL` env var (flag wins). The override must be an https origin only (`https://host[:port]`: no path, query or credentials, no plain http); a malformed override makes every command run with a known profile, including `secrets set`, exit 2 (it is applied before the command switch). `bs onboard` refuses while any URL in the profile is still a
+`.invalid` (or `.invalid.`, or any form with two or more trailing dots, or whitespace-padded) host; `plan` and `doctor` run while the override is absent or valid.
 
 Fresh box:
 

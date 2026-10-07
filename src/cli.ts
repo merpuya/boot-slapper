@@ -29,7 +29,7 @@ const USAGE = `usage: bs — boot-slapper
   bs capture --out <dir> [--profile aca34]
   bs secrets set|check <${SERVICES.join("|")}>
   --profile cornell-faculty   Claude Desktop only, via the Cornell AI gateway; its gateway URL is a placeholder until you pass --gateway-url or set ${GATEWAY_URL_ENV}
-  --gateway-url <url>   run-time gateway URL for this run, https origin only: no path, no http (beats ${GATEWAY_URL_ENV}); a malformed value makes every command, including secrets set, exit 2; onboard refuses while any profile URL is still a .invalid placeholder
+  --gateway-url <url>   run-time gateway URL for this run, https origin only: no path, no http (beats ${GATEWAY_URL_ENV}); a malformed value makes every command run with a known profile, including secrets set, exit 2; onboard refuses while any profile URL is still a .invalid placeholder (or .invalid., or any form with two or more trailing dots, or whitespace-padded)
   --auto      no prompts: interactive steps are skipped with a warning (implies --headless)
   --headless  line output instead of the Ink screens (also the default when stdin is not a terminal or CI is set)
   --only desktop-inference,desktop-mcp,desktop-skills   # just the Claude Desktop (3P) surface`;
