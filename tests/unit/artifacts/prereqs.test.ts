@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { prereqs } from "../../../src/artifacts/prereqs.ts";
 import { resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
+import { withOpts } from "../../../src/engine/artifact.ts";
+import { buildCtx } from "../../../src/engine/ctx.ts";
+import { cornellFaculty } from "../../../src/profiles/cornell-faculty.ts";
 import { makeCtx } from "../helpers.ts";
+import { ALL_FIXTURES, type Fixture } from "../migration-fixtures.ts";
 
 const allTools = { git: "/usr/bin/git", curl: "/usr/bin/curl", jq: "/opt/jq", python3: "/usr/bin/python3", node: "/usr/local/bin/node", claude: "/h/.local/bin/claude" };
 
@@ -66,5 +70,47 @@ describe("prereqs", () => {
     const mac = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"], files: { "/Applications/Claude.app/Contents/Info.plist": "<plist><dict><key>CFBundleShortVersionString</key><string>1.49585.0</string></dict></plist>" } });
     mac.io.on((c) => c === "node", () => ({ code: 0, stdout: "v22.12.0\n", stderr: "" }));
     expect((await prereqs.verify(mac.ctx)).find((c) => c.id === "desktop")).toMatchObject({ status: "ok" });
+  });
+});
+
+describe("prereqs, trimmed for the faculty profile (no dev tools, managed-policy gate)", () => {
+  const opts = { trimmed: true, refuseManaged: true };
+  const ctxFor = async (f: Fixture) => withOpts(await buildCtx(f.io, cornellFaculty, { interactive: false, prompt: { secret: async () => "", text: async () => "", confirm: async () => true, gate: async () => {} }, emit: () => {} }), opts);
+
+  it("asks only for Desktop, its store, managed-policy absence and the platform: no git/curl/jq/python/node/claude", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    const ctx = await ctxFor(f);
+    const checks = await prereqs.verify(ctx);
+    expect(checks.map((c) => c.id)).toEqual(["desktop", "desktop-store", "managed-policy", "platform"]);
+    expect(checks.every((c) => c.status === "ok")).toBe(true);
+    expect(await prereqs.detect(ctx)).toEqual({ kind: "present" });
+    expect(f.io.calls.some((c) => c.cmd === "node" || c.cmd === "git")).toBe(false);
+    expect(f.io.writes).toEqual([]);
+  });
+  it("personal win32 box is clean too", async () => {
+    const ctx = await ctxFor(ALL_FIXTURES.personalWinSignedIn());
+    expect(await prereqs.detect(ctx)).toEqual({ kind: "present" });
+  });
+  it("blocks on a managed Windows HKLM policy and a managed macOS profile, naming the source", async () => {
+    for (const mk of [ALL_FIXTURES.managedWinHklm, ALL_FIXTURES.managedMacProfile]) {
+      const f = mk(); const ctx = await ctxFor(f);
+      expect(await prereqs.detect(ctx), f.name).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/managed.*sets inference/) });
+      expect((await prereqs.verify(ctx)).find((c) => c.id === "managed-policy"), f.name).toMatchObject({ status: "error" });
+      expect(f.io.writes).toEqual([]);
+    }
+  });
+  it("blocks on an unreadable policy source: could not verify is not clean", async () => {
+    const f = ALL_FIXTURES.policyUnreadable(); const ctx = await ctxFor(f);
+    expect(await prereqs.detect(ctx)).toMatchObject({ kind: "blocked", reason: expect.stringMatching(/could not verify/i) });
+  });
+  it("a missing Desktop is an error here (it is the whole surface), unlike the owner profile where it only warns", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn(); f.io.dirs.delete("/Applications/Claude.app");
+    const ctx = await ctxFor(f);
+    expect((await prereqs.verify(ctx)).find((c) => c.id === "desktop")).toMatchObject({ status: "error" });
+    expect(await prereqs.detect(ctx)).toMatchObject({ kind: "blocked", reason: "missing desktop" });
+  });
+  it("the owner profile keeps its checks: no managed-policy check and the dev tools stay required", async () => {
+    const { ctx } = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"] });
+    expect((await prereqs.verify(ctx)).map((c) => c.id)).not.toContain("managed-policy");
   });
 });

@@ -1,6 +1,7 @@
 import { desktopInference } from "../artifacts/desktop-inference.ts";
 import { desktopMcp } from "../artifacts/desktop-mcp.ts";
 import { desktopSkills } from "../artifacts/desktop-skills.ts";
+import { legacySubscription } from "../artifacts/legacy-subscription.ts";
 import { hostedConnectors } from "../artifacts/hosted-connectors.ts";
 import { prereqs } from "../artifacts/prereqs.ts";
 import { secrets } from "../artifacts/secrets.ts";
@@ -18,8 +19,10 @@ export const cornellFaculty: Profile = {
   name: "cornell-faculty",
   provider: "gateway",
   surfaces: ["desktop"],
-  artifacts: [prereqs, secrets, desktopInference, desktopMcp, desktopSkills, hostedConnectors],
+  artifacts: [prereqs, legacySubscription, secrets, desktopInference, desktopMcp, desktopSkills, hostedConnectors],
   options: {
+    // Trimmed prereqs: Desktop + the managed-policy gate only (no git/jq/python/node/claude on a faculty box).
+    prereqs: { trimmed: true, refuseManaged: true },
     secrets: { services: ["cornell-ai-gateway"] },
     "desktop-inference": { baseUrl: GATEWAY },
     // Profile-supplied servers replace the owner's ~/.claude/mcp/gateway.json and drop the claude-config requirement. One credential (the gateway service), sent header-only via a helper.
@@ -28,7 +31,7 @@ export const cornellFaculty: Profile = {
       tokens: { GATEWAY_KEY: "cornell-ai-gateway" },
       baseUrl: GATEWAY,
     },
-    // No owner dotclaude on a faculty box. skills is empty until the legacy-subscription probe (spec B1) finds the user's own skills folder; sourceDir needs a home-relative resolver the engine lacks.
+    // No owner dotclaude on a faculty box. skills stays empty and no sourceDir is set until the Q5 never-3P-box probe says where a personal skills folder lives; the engine now resolves a home-relative sourceDir (`~/...`).
     "desktop-skills": { skills: [], fromClaudeConfig: false },
     "hosted-connectors": {
       connectors: ["Gmail", "Google Calendar", "Google Drive"],

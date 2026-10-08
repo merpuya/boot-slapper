@@ -21,6 +21,12 @@ describe("cornell-faculty profile (public repo: public values only)", () => {
     expect(ids).toEqual(expect.arrayContaining(["desktop-inference", "desktop-mcp", "desktop-skills", "hosted-connectors"]));
     for (const owner of ["claude-config", "project-memory", "mct", "plugins", "gateway-launch", "open-brain-auth", "device-label"]) expect(ids).not.toContain(owner);
   });
+  it("runs the read-only legacy-subscription probe and the trimmed, managed-gating prereqs", () => {
+    const ids = selectArtifacts(cornellFaculty).map((a) => a.id);
+    expect(ids).toEqual(expect.arrayContaining(["prereqs", "legacy-subscription"]));
+    expect(cornellFaculty.options.prereqs).toEqual({ trimmed: true, refuseManaged: true });
+    expect(applyGatewayOverride(cornellFaculty, "https://gw.test.example").options.prereqs).toEqual({ trimmed: true, refuseManaged: true });
+  });
   it("supplies its own desktop-mcp servers (headers-helper secret mapped, no MeCP/Open Brain) and drops the dotclaude dependency for skills", () => {
     const mcp = cornellFaculty.options["desktop-mcp"] as { servers: Record<string, { url: string }>; tokens: Record<string, string> };
     expect(Object.keys(mcp.servers)).toEqual(["cornell_secure_tools"]);

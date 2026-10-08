@@ -1,6 +1,7 @@
 import type { Artifact, Bundle, Check, Ctx, State } from "../engine/artifact.ts";
 import { desktopInstall, MIN_DESKTOP_VERSION, resolveDesktopStore, versionAtLeast, WIN32_MIN_DESKTOP_VERSION } from "../engine/desktop.ts";
 import type { Io } from "../engine/io.ts";
+import { managedGate } from "../engine/managed-gate.ts";
 
 export async function nodeVersion(io: Io): Promise<{ major: number; minor: number; raw: string } | null> {
   const r = await io.exec("node", ["--version"]);
@@ -12,9 +13,26 @@ export async function nodeVersion(io: Io): Promise<{ major: number; minor: numbe
 
 const CLAUDE_HINT = "native installer: curl -fsSL https://claude.ai/install.sh | bash  (→ ~/.local/bin/claude; then run `claude` once)";
 
+/** `trimmed`: a desktop-only profile for non-technical users. Skips the developer tools (git/curl/jq/python/node/claude) and makes a missing Desktop an error, since Desktop is the whole surface.
+ *  `refuseManaged`: add the managed-policy gate (spec 2026-09-30 section 5): machine policy, or a policy source that cannot be read, blocks the profile. */
+interface Opts { trimmed?: boolean; refuseManaged?: boolean }
+
 async function checks(ctx: Ctx): Promise<Check[]> {
   const { io, env } = ctx;
+  const o = ctx.opts as Opts;
   const out: Check[] = [];
+  if (!o.trimmed) await toolChecks(ctx, out);
+  await desktopChecks(ctx, out, o.trimmed === true);
+  if (o.refuseManaged) {
+    const g = await managedGate(io, env.os);
+    out.push(g.verdict === "clean" ? { id: "managed-policy", status: "ok", message: "no machine policy owns Claude Desktop's settings" } : { id: "managed-policy", status: "error", message: `${g.verdict === "managed" ? "managed" : "could not verify"}: ${g.detail}` });
+  }
+  out.push({ id: "platform", status: "ok", message: `platform: ${env.os}` });
+  return out;
+}
+
+async function toolChecks(ctx: Ctx, out: Check[]): Promise<void> {
+  const { io } = ctx;
   for (const t of ["git", "curl", "jq"]) {
     out.push((await io.which(t)) ? { id: t, status: "ok", message: `prereq: ${t}` } : { id: t, status: "error", message: `prereq missing: ${t} — install it, then re-run` });
   }
@@ -25,8 +43,12 @@ async function checks(ctx: Ctx): Promise<Check[]> {
   else if (nv.major > 22 || (nv.major === 22 && nv.minor >= 5)) out.push({ id: "node", status: "ok", message: `prereq: node ${nv.raw}` });
   else out.push({ id: "node", status: "error", message: `node ${nv.raw} < 22.5 — upgrade node` });
   out.push((await io.which("claude")) ? { id: "claude", status: "ok", message: "prereq: claude" } : { id: "claude", status: "warn", message: `claude not found — ${CLAUDE_HINT}` });
+}
+
+async function desktopChecks(ctx: Ctx, out: Check[], required: boolean): Promise<void> {
+  const { io, env } = ctx;
   const d = await desktopInstall(io, env.os, env.home);
-  if (!d.installed) out.push({ id: "desktop", status: "warn", message: `Claude Desktop not found at ${d.path} — install from https://claude.com/download (Windows: the .msix package; the .exe installer has no Cowork)` });
+  if (!d.installed) out.push({ id: "desktop", status: required ? "error" : "warn", message: `Claude Desktop not found at ${d.path} — install from https://claude.com/download (Windows: the .msix package; the .exe installer has no Cowork)` });
   else if (d.version && !versionAtLeast(d.version, MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${MIN_DESKTOP_VERSION} — update it before the desktop artifacts run` });
   else if (env.os === "win32" && d.version && !versionAtLeast(d.version, WIN32_MIN_DESKTOP_VERSION)) out.push({ id: "desktop", status: "warn", message: `Claude Desktop ${d.version} < ${WIN32_MIN_DESKTOP_VERSION} — the Windows build the desktop artifacts were validated on (spike S4, 2026-09-18); older builds are untested for flat-entry MCP servers and .ps1 helpers. Update Claude before relying on the desktop artifacts` });
   else out.push({ id: "desktop", status: "ok", message: d.version ? `Claude Desktop ${d.version} at ${d.path}` : `Claude Desktop at ${d.path} (version unknown)` });
@@ -36,20 +58,20 @@ async function checks(ctx: Ctx): Promise<Check[]> {
     const s = await resolveDesktopStore(io, env.os, env.home);
     out.push({ id: "desktop-store", status: "ok", message: s.live ? `Claude-3p store: ${s.dir} (${s.reason})` : `Claude-3p store: ${s.dir} — ${s.reason}, so this is the default rather than an observed one` });
   }
-  out.push({ id: "platform", status: "ok", message: `platform: ${env.os}` });
-  return out;
 }
 
 export const prereqs: Artifact = {
   id: "prereqs", surfaces: ["code", "desktop"], portability: "device-bound", requires: [],
   async detect(ctx): Promise<State> {
     const hard = (await checks(ctx)).find((c) => c.status === "error");
-    return hard ? { kind: "blocked", reason: hard.id === "node" ? "node < 22.5 or missing" : `missing ${hard.id}` } : { kind: "present" };
+    if (!hard) return { kind: "present" };
+    return { kind: "blocked", reason: hard.id === "node" ? "node < 22.5 or missing" : hard.id === "managed-policy" ? hard.message : `missing ${hard.id}` };
   },
   plan: () => [],
   async apply() {},
   verify: checks,
-  async capture(): Promise<Bundle> {
+  async capture(ctx): Promise<Bundle> {
+    if ((ctx.opts as Opts).trimmed) return { files: [], instructions: ["Claude Desktop ≥ 1.19367.0 — https://claude.com/download (macOS .dmg; Windows .msix)"] };
     return { files: [], instructions: [
       "git, curl, jq, python3 (or python) and node ≥ 22.5 on PATH — platform package manager (dotfiles Brewfile / winget-packages.json)",
       `claude CLI — ${CLAUDE_HINT}`,
