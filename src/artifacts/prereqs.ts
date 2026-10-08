@@ -71,7 +71,8 @@ export const prereqs: Artifact = {
   async apply() {},
   verify: checks,
   async capture(ctx): Promise<Bundle> {
-    if ((ctx.opts as Opts).trimmed) return { files: [], instructions: ["Claude Desktop ≥ 1.19367.0 — https://claude.com/download (macOS .dmg; Windows .msix)"] };
+    const desktopLine = `Claude Desktop ≥ ${ctx.env.os === "win32" ? WIN32_MIN_DESKTOP_VERSION : MIN_DESKTOP_VERSION} — https://claude.com/download (macOS .dmg; Windows .msix)`;
+    if ((ctx.opts as Opts).trimmed) return { files: [], instructions: [desktopLine] };
     return { files: [], instructions: [
       "git, curl, jq, python3 (or python) and node ≥ 22.5 on PATH — platform package manager (dotfiles Brewfile / winget-packages.json)",
       `claude CLI — ${CLAUDE_HINT}`,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prereqs } from "../../../src/artifacts/prereqs.ts";
-import { resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
+import { MIN_DESKTOP_VERSION, WIN32_MIN_DESKTOP_VERSION, resetDesktopProbeCache } from "../../../src/engine/desktop.ts";
 import { withOpts } from "../../../src/engine/artifact.ts";
 import { buildCtx } from "../../../src/engine/ctx.ts";
 import { cornellFaculty } from "../../../src/profiles/cornell-faculty.ts";
@@ -112,5 +112,11 @@ describe("prereqs, trimmed for the faculty profile (no dev tools, managed-policy
   it("the owner profile keeps its checks: no managed-policy check and the dev tools stay required", async () => {
     const { ctx } = await makeCtx({ path: allTools, dirs: ["/Applications/Claude.app"] });
     expect((await prereqs.verify(ctx)).map((c) => c.id)).not.toContain("managed-policy");
+  });
+  it("the trimmed capture names the per-platform minimum Desktop version from the constants", async () => {
+    const mac = await ctxFor(ALL_FIXTURES.personalMacSignedIn());
+    expect((await prereqs.capture!(mac)).instructions).toEqual([expect.stringContaining(`≥ ${MIN_DESKTOP_VERSION} `)]);
+    const win = await ctxFor(ALL_FIXTURES.personalWinSignedIn());
+    expect((await prereqs.capture!(win)).instructions).toEqual([expect.stringContaining(`≥ ${WIN32_MIN_DESKTOP_VERSION} `)]);
   });
 });
