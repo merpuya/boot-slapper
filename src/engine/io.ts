@@ -155,9 +155,12 @@ export class FakeIo implements Io {
     for (const d of [...this.dirs]) this.addParents(d);
     this.pathMap = init.path ?? {};
   }
+  /** Path flavour of the simulated machine: a win32 fake has backslash paths that posix dirname cannot split. */
+  private get pp() { return this.platform === "win32" ? path.win32 : path.posix; }
   private addParents(p: string) {
-    let d = path.posix.dirname(p);
-    while (d && d !== "/" && d !== ".") { this.dirs.add(d); d = path.posix.dirname(d); }
+    const pp = this.pp;
+    let d = pp.dirname(p);
+    while (d && d !== "/" && d !== "." && d !== pp.dirname(d)) { this.dirs.add(d); d = pp.dirname(d); }
   }
   on(match: (cmd: string, args: string[]) => boolean, handler: Handler) { this.handlers.push({ match, handler }); }
   onFetch(match: (url: string) => boolean, handler: (url: string, init: FetchInit) => FetchResult) { this.fetchHandlers.push({ match, handler }); }
@@ -176,12 +179,13 @@ export class FakeIo implements Io {
   }
   async exists(p: string) { return this.files.has(p) || this.dirs.has(p); }
   async isDir(p: string) { return this.dirs.has(p); }
-  async mkdirp(p: string) { this.dirs.add(p); this.addParents(p + "/x"); }
+  async mkdirp(p: string) { this.dirs.add(p); this.addParents(p + this.pp.sep + "x"); }
   async readdir(p: string) {
     if (!this.dirs.has(p)) return [];
     const out = new Set<string>();
-    for (const f of this.files.keys()) if (path.posix.dirname(f) === p) out.add(path.posix.basename(f));
-    for (const d of this.dirs) if (path.posix.dirname(d) === p) out.add(path.posix.basename(d));
+    const pp = this.pp;
+    for (const f of this.files.keys()) if (pp.dirname(f) === p) out.add(pp.basename(f));
+    for (const d of this.dirs) if (pp.dirname(d) === p) out.add(pp.basename(d));
     return [...out];
   }
   async exec(cmd: string, args: string[], opts: ExecOpts = {}) {
