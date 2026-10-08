@@ -73,6 +73,21 @@ describe("bs migrate --checklist-only", () => {
     expect((await run(f, ["migrate", "--checklist-only", "--out", "/tmp/mine"])).code).toBe(0);
     expect(f.io.writes).toEqual(["/tmp/mine/instructions.md"]);
   });
+  it("expands a leading ~ in --out against the home folder", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    expect((await run(f, ["migrate", "--checklist-only", "--out", "~/saved"])).code).toBe(0);
+    expect(f.io.writes).toEqual(["/h/saved/instructions.md"]);
+  });
+  it("refuses an --out inside the first-party Claude store, and writes nothing", async () => {
+    for (const k of ["personalMacSignedIn", "personalWinSignedIn"] as const) {
+      const f = ALL_FIXTURES[k]();
+      for (const out of [f.firstParty, `${f.firstParty}${sep(f)}sub`]) {
+        const r = await run(f, ["migrate", "--checklist-only", "--out", out]);
+        expect(r.code).toBe(2); expect(r.err).toMatch(/inside Claude's own data folder/);
+        expect(f.io.writes).toEqual([]);
+      }
+    }
+  });
   it("re-running regenerates only its own file (identical bytes) and refuses to overwrite a foreign instructions.md", async () => {
     const f = ALL_FIXTURES.personalMacSignedIn();
     await run(f, ["migrate", "--checklist-only"]);

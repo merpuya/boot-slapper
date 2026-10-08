@@ -24,7 +24,7 @@ export interface LegacyFacts {
 }
 
 const roaming = (ctx: Ctx) => ctx.io.env.APPDATA ?? pj("win32", ctx.env.home, "AppData", "Roaming");
-const firstPartyStore = (ctx: Ctx) =>
+export const firstPartyStore = (ctx: Ctx) =>
   ctx.env.os === "darwin" ? pj("darwin", ctx.env.home, "Library", "Application Support", "Claude")
     : ctx.env.os === "win32" ? pj("win32", roaming(ctx), "Claude") : pj(ctx.env.os, ctx.env.home, ".config", "Claude");
 /** The folder the faculty KB's appendix names for personal skills. A source to probe only; Q5 residue: whether it is ever populated on a never-3P box. */

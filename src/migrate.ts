@@ -1,12 +1,22 @@
-import { CHECKLIST_MARKER, legacyFacts, renderChecklist } from "./artifacts/legacy-subscription.ts";
+import path from "node:path";
+import { CHECKLIST_MARKER, firstPartyStore, legacyFacts, renderChecklist } from "./artifacts/legacy-subscription.ts";
 import type { Ctx } from "./engine/artifact.ts";
 import { scanForSecrets } from "./engine/capture.ts";
 import { pj } from "./engine/env.ts";
 import { gateLines, managedGate, refusesManaged } from "./engine/managed-gate.ts";
+import { resolveHomePath } from "./engine/paths.ts";
 import type { Profile } from "./engine/profile.ts";
 import type { Sink } from "./ui/headless.ts";
 
 export const EXIT_MANAGED = 4;
+
+/** True when `p` is the store folder or anywhere beneath it (lexical, target-os flavour; case-insensitive on macOS and Windows). */
+function insideStore(os: Ctx["env"]["os"], p: string, store: string): boolean {
+  const flavour = os === "win32" ? path.win32 : path.posix;
+  const fold = (x: string) => (os === "linux" ? x : x.toLowerCase());
+  const rel = flavour.relative(fold(flavour.resolve(store)), fold(flavour.resolve(p)));
+  return rel === "" || (!rel.startsWith("..") && !flavour.isAbsolute(rel));
+}
 
 /**
  * `bs migrate` (spec 2026-09-30 section 4). B1 ships the checklist half only: it reads the machine and writes ONE file, instructions.md,
@@ -31,7 +41,11 @@ export async function runMigrate(o: { ctx: Ctx; profile: Profile; checklistOnly:
   const md = renderChecklist(await legacyFacts(ctx), hosted);
   const hits = scanForSecrets([{ path: "instructions.md", content: md }]);
   if (hits.length) { stderr.write(`refusing to write the checklist: ${hits.length} secret-shaped string(s) (${hits.map((h) => `line ${h.line}, ${h.pattern}`).join("; ")})`); return 1; }
-  const dir = o.out ?? pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration");
+  let dir: string;
+  try { dir = o.out !== undefined ? resolveHomePath(ctx.env.os, ctx.env.home, o.out) : pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration"); }
+  catch (e) { stderr.write(`--out: ${(e as Error).message}`); return 2; }
+  const store = firstPartyStore(ctx);
+  if (insideStore(ctx.env.os, dir, store)) { stderr.write(`refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`); return 2; }
   const target = pj(ctx.env.os, dir, "instructions.md");
   const existing = await ctx.io.readFile(target);
   if (existing !== null && !existing.startsWith(CHECKLIST_MARKER)) { stderr.write(`${target} already exists and was not written by this tool, so it was left alone. Choose another folder with --out.`); return 1; }
