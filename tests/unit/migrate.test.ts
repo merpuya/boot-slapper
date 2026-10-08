@@ -81,7 +81,7 @@ describe("bs migrate --checklist-only", () => {
   it("refuses an --out inside the first-party Claude store, and writes nothing", async () => {
     for (const k of ["personalMacSignedIn", "personalWinSignedIn"] as const) {
       const f = ALL_FIXTURES[k]();
-      for (const out of [f.firstParty, `${f.firstParty}${sep(f)}sub`]) {
+      for (const out of [f.firstParty, `${f.firstParty}${sep(f)}sub`, `${f.firstParty}${sep(f)}..x`]) {
         const r = await run(f, ["migrate", "--checklist-only", "--out", out]);
         expect(r.code).toBe(2); expect(r.err).toMatch(/inside Claude's own data folder/);
         expect(f.io.writes).toEqual([]);

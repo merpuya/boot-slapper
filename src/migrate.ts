@@ -15,7 +15,8 @@ function insideStore(os: Ctx["env"]["os"], p: string, store: string): boolean {
   const flavour = os === "win32" ? path.win32 : path.posix;
   const fold = (x: string) => (os === "linux" ? x : x.toLowerCase());
   const rel = flavour.relative(fold(flavour.resolve(store)), fold(flavour.resolve(p)));
-  return rel === "" || (!rel.startsWith("..") && !flavour.isAbsolute(rel));
+  const up = rel === ".." || rel.startsWith(`..${flavour.sep}`); // "..x" is a child named ..x, not a parent hop
+  return rel === "" || (!up && !flavour.isAbsolute(rel));
 }
 
 /**
