@@ -30,3 +30,9 @@ export async function managedGate(io: Io, os: Os): Promise<GateResult> {
   if (bad) return { verdict: "unknown", message: `Could not verify whether this computer's Claude settings are managed by your organisation, so this tool stops rather than guess. Ask IT: ${SUPPORT_CONTACT}`, detail: `could not read ${bad.source}` };
   return { verdict: "clean", message: null, detail: null };
 }
+
+/** A profile opts in through its prereqs options (the same flag drives the prereqs managed-policy check). */
+export const refusesManaged = (profile: { options: Record<string, Record<string, unknown>> }): boolean => profile.options.prereqs?.refuseManaged === true;
+
+/** Lines to print for a non-clean verdict: the user-facing message, then the deciding source (keys only, never values). */
+export const gateLines = (g: GateResult): string[] => (g.message ? [g.message, `(${g.detail})`] : []);

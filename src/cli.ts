@@ -9,6 +9,8 @@ import { RealIo, type Io } from "./engine/io.ts";
 import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
 import { applyGatewayOverride, GATEWAY_URL_ENV, placeholderUrls } from "./engine/gateway-override.ts";
+import { gateLines, managedGate, refusesManaged } from "./engine/managed-gate.ts";
+import { EXIT_MANAGED, runMigrate } from "./migrate.ts";
 import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -27,6 +29,7 @@ const USAGE = `usage: bs — boot-slapper
   bs doctor  [--profile aca34|cornell-faculty] [--json] [--headless] [--gateway-url <url>]
   bs onboard [--profile aca34|cornell-faculty] [--auto] [--headless] [--only a,b] [--skip a,b] [--gateway-url <url>]
   bs capture --out <dir> [--profile aca34]
+  bs migrate --profile cornell-faculty --checklist-only [--out <dir>]   # write the save-this-first checklist (default ~/Documents/claude-migration); refuses nothing on a managed box, applies nothing anywhere
   bs secrets set|check <${SERVICES.join("|")}>
   --profile cornell-faculty   Claude Desktop only, via the Cornell AI gateway; its gateway URL is a placeholder until you pass --gateway-url or set ${GATEWAY_URL_ENV}
   --gateway-url <url>   run-time gateway URL for this run, https origin only: no path, no http (beats ${GATEWAY_URL_ENV}); a malformed value makes every command run with a known profile, including secrets set, exit 2; onboard refuses while any profile URL is still a .invalid placeholder (or .invalid., or any form with two or more trailing dots, or whitespace-padded)
@@ -48,7 +51,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   try {
     ({ values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: {
       profile: { type: "string", default: "aca34" }, json: { type: "boolean" }, auto: { type: "boolean" }, headless: { type: "boolean" },
-      only: { type: "string" }, "gateway-url": { type: "string" }, skip: { type: "string" }, out: { type: "string" },
+      only: { type: "string" }, "checklist-only": { type: "boolean" }, "gateway-url": { type: "string" }, skip: { type: "string" }, out: { type: "string" },
     } }));
   } catch (e) { stderr.write(String(e instanceof Error ? e.message : e)); stderr.write(USAGE); return 2; }
 
@@ -86,6 +89,10 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       return status === "error" ? 1 : 0;
     }
     case "onboard": {
+      if (refusesManaged(profile)) {
+        const gate = await managedGate(io, os);
+        if (gate.verdict !== "clean") { for (const l of gateLines(gate)) stderr.write(l); stderr.write("Nothing was changed."); return EXIT_MANAGED; }
+      }
       const placeholders = placeholderUrls(profile);
       if (placeholders.length) {
         stderr.write(`refusing to onboard profile ${profile.name}: ${placeholders.length > 1 ? "these URLs are" : "this URL is"} still a placeholder (a non-resolving .invalid host): ${[...new Set(placeholders)].join(", ")}. Pass --gateway-url <url> or set ${GATEWAY_URL_ENV} to the published gateway address (the profile file stays value-free), then re-run. bs plan and bs doctor still work.`);
@@ -132,6 +139,10 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       await io.writeFile(pj(os, out, "manifest.json"), JSON.stringify(res.manifest, null, 2) + "\n"); // last: a manifest means "complete"
       stdout.write(`==> bundle written: ${out} (${res.files.length} file(s), ${res.manifest.artifacts.length} artifact(s))`);
       return 0;
+    }
+    case "migrate": {
+      const ctx = await ctxFor(io, profile, false, () => {});
+      return runMigrate({ ctx, profile, checklistOnly: values["checklist-only"] === true, out: typeof values.out === "string" ? values.out : undefined, stdout, stderr });
     }
     case "secrets": {
       const [op, svc] = positionals;
