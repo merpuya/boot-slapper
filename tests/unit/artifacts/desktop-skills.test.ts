@@ -28,6 +28,17 @@ describe("desktop-skills", () => {
     expect(skillDescription("")).toBe("");
   });
 
+  it("sourceDir may be home-relative: ~/... resolves against the user's home, with the same hash as the absolute spelling", async () => {
+    const files = { "/h/Documents/Claude/.claude/skills/handoff/SKILL.md": "---\ndescription: Mine\n---\n" };
+    const a = await base(files); const b = await base(files);
+    const stateRel = await desktopSkills.detect({ ...a.ctx, opts: { skills: ["handoff"], fromClaudeConfig: false, sourceDir: "~/Documents/Claude/.claude/skills" } });
+    const stateAbs = await desktopSkills.detect({ ...b.ctx, opts: { skills: ["handoff"], fromClaudeConfig: false, sourceDir: "/h/Documents/Claude/.claude/skills" } });
+    expect(stateRel).toEqual(stateAbs);
+    expect(stateRel.kind).toBe("absent");
+    const missing = await desktopSkills.detect({ ...a.ctx, opts: { skills: ["handoff"], fromClaudeConfig: false, sourceDir: "~/Nowhere" } });
+    expect(missing).toMatchObject({ kind: "blocked", reason: expect.stringContaining("/h/Nowhere") });
+  });
+
   it("fresh: copies each listed skill, adds user manifest entries, records source hashes; then present", async () => {
     const { ctx, io } = await base();
     const s = await desktopSkills.detect(ctx);

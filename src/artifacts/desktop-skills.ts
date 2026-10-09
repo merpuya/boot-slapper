@@ -2,11 +2,12 @@ import type { Artifact, Bundle, Check, Ctx, State, Step } from "../engine/artifa
 import { sha256 } from "../engine/capture.ts";
 import { appliedEntry, cfgGet, decodeAntDid, desktopDataDir, desktopInstall, desktopRunning, readJson, readSidecar, runningError, writeSidecar, ORG_SENTINEL } from "../engine/desktop.ts";
 import { pj, type Os } from "../engine/env.ts";
+import { resolveHomePath } from "../engine/paths.ts";
 import { walkFiles } from "../engine/walk.ts";
 
 const ID = "desktop-skills";
 /** `fromClaudeConfig` (default true): the skills are dotclaude's, so `claude-config` must run first. A profile with no owner dotclaude (e.g. a desktop-only faculty profile) sets it false and drops that dependency. */
-/** `sourceDir` (default `<claudeDir>/skills`): where the named skills are read from — an absolute path, e.g. a faculty user's own skills folder. */
+/** `sourceDir` (default `<claudeDir>/skills`): where the named skills are read from — an absolute path, or home-relative (`~/x`, resolved by engine/paths.ts), e.g. a faculty user's own skills folder. */
 interface Opts { skills: string[]; fromClaudeConfig?: boolean; sourceDir?: string }
 export const D = { copy: "skill to copy:", foreign: "skill exists in Cowork but is not managed by boot-slapper:", manifest: "manifest entry missing:" } as const;
 export interface ManifestSkill { skillId: string; name: string; description: string; creatorType: string; syncManaged?: boolean; updatedAt: string | null; enabled: boolean }
@@ -44,10 +45,11 @@ async function facts(ctx: Ctx): Promise<Facts> {
     const j = await readJson(io, manifestPath);
     manifest = j === null ? null : j !== "invalid" && Array.isArray((j as { skills?: unknown }).skills) ? (j as unknown as Manifest) : "invalid";
   }
+  const sourceDir = o.sourceDir ? resolveHomePath(env.os, env.home, o.sourceDir) : pj(env.os, env.claudeDir, "skills");
   const owned = (await readSidecar(io, env.os, env.home)).skills ?? {};
   const skills: SkillFacts[] = []; const missingSources: string[] = [];
   for (const name of o.skills ?? []) {
-    const src = o.sourceDir ? pj(env.os, o.sourceDir, name) : pj(env.os, env.claudeDir, "skills", name);
+    const src = pj(env.os, sourceDir, name);
     const files = await walkFiles(io, env.os, src);
     if (!files.length) { missingSources.push(name); continue; }
     const entries: Array<{ rel: string; content: string }> = [];
@@ -55,7 +57,7 @@ async function facts(ctx: Ctx): Promise<Facts> {
     const dst = pj(env.os, plugin, "skills", name);
     skills.push({ name, src, files, hash: sourceHash(entries), dst, inCowork: ran3p && (await io.isDir(dst)), ownedHash: owned[name] ?? null, manifest: manifest && manifest !== "invalid" ? manifest.skills.find((s) => s.name === name) : undefined });
   }
-  return { sourceDir: o.sourceDir ?? pj(env.os, env.claudeDir, "skills"), installed: install.installed, running: install.installed ? await desktopRunning(io, env.os) : false, ran3p, plugin, manifestPath, manifest, skills, missingSources };
+  return { sourceDir, installed: install.installed, running: install.installed ? await desktopRunning(io, env.os) : false, ran3p, plugin, manifestPath, manifest, skills, missingSources };
 }
 const foreign = (s: SkillFacts) => s.ownedHash === null && (s.inCowork || s.manifest !== undefined);
 const stale = (s: SkillFacts) => s.ownedHash !== null && (s.ownedHash !== s.hash || !s.inCowork);

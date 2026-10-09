@@ -14,6 +14,11 @@ Design: `docs/superpowers/specs/2026-09-09-boot-slapper-design.md`.
     bs onboard [--profile aca34|cornell-faculty] [--auto] [--headless]  # plan → confirm → apply → verify
     bs capture --out <dir>                              # portable/translatable state as a bundle dir (spec §5); refuses secret-shaped strings
     bs secrets set|check <service>                      # cornell-ai-gateway | mecp-device-token | mecp-api-key | mct-sync-token
+    bs migrate --profile cornell-faculty --checklist-only [--out <dir>]   # write the save-this-first checklist (instructions.md); read-only apart from that one file
+
+On a machine whose Claude Desktop is managed by policy (or whose policy cannot be read), `bs onboard --profile cornell-faculty` and
+`bs migrate` without `--checklist-only` refuse with exit code 4 and write nothing; there is no override flag. `bs migrate --checklist-only`
+still works there. `--out` may not point inside Claude's own data folder, and a leading `~` is expanded.
 
 In a terminal `onboard` and `doctor` draw Ink screens (plan → apply → doctor); `--headless` gives the
 line output, and `--auto` (no prompts, interactive steps skipped with a warning) implies it. Piped stdin
