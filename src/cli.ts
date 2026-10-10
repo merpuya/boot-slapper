@@ -10,7 +10,7 @@ import type { Profile } from "./engine/profile.ts";
 import { applyPlan, resolvePlan, verifyAll, worstStatus } from "./engine/run.ts";
 import { applyGatewayOverride, GATEWAY_URL_ENV, placeholderUrls } from "./engine/gateway-override.ts";
 import { gateLines, managedGate, refusesManaged } from "./engine/managed-gate.ts";
-import { EXIT_MANAGED, runMigrate } from "./migrate.ts";
+import { EXIT_MANAGED, resolveOutDir, runMigrate } from "./migrate.ts";
 import { checkShape } from "./engine/secrets/shape.ts";
 import { defaultAccount, type SecretService } from "./engine/secrets/store.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -127,10 +127,13 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       return res.failed.length || worstStatus(res.checks) === "error" ? 1 : 0;
     }
     case "capture": {
-      const out = typeof values.out === "string" ? values.out : "";
-      if (!out) { stderr.write("bs capture needs --out <dir>"); stderr.write(USAGE); return 2; }
-      if (await io.exists(pj(os, out, "manifest.json"))) { stderr.write(`${out} already holds a bundle (manifest.json) — choose another --out`); return 1; }
+      const rawOut = typeof values.out === "string" ? values.out : "";
+      if (!rawOut) { stderr.write("bs capture needs --out <dir>"); stderr.write(USAGE); return 2; }
       const ctx = await ctxFor(io, profile, false, headlessReporter(stdout));
+      const resolved = resolveOutDir(ctx, rawOut);
+      if ("error" in resolved) { stderr.write(resolved.error); return resolved.code; }
+      const out = resolved.dir;
+      if (await io.exists(pj(os, out, "manifest.json"))) { stderr.write(`${out} already holds a bundle (manifest.json) — choose another --out`); return 1; }
       let res: CaptureResult;
       try { res = await captureBundle(profile, ctx); }
       catch (e) { if (e instanceof SecretScanError) { stderr.write(e.message); return 1; } throw e; }

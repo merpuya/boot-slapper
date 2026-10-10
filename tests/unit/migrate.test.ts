@@ -129,3 +129,25 @@ describe("bs migrate (without --checklist-only)", () => {
     expect(err.lines.join("\n")).toMatch(/cornell-faculty/); expect(f.io.writes).toEqual([]);
   });
 });
+
+describe("bs capture --out shares migrate's --out resolver", () => {
+  it("expands a leading ~ in --out against the home folder", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    const r = await run(f, ["capture", "--out", "~/bundle"]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(f.io.writes.length).toBeGreaterThan(0);
+    expect(f.io.writes.every((w) => w.startsWith("/h/bundle/"))).toBe(true);
+    expect(f.io.writes.at(-1)).toBe("/h/bundle/manifest.json");
+  });
+  it("refuses an --out inside the first-party Claude store, and writes nothing", async () => {
+    for (const k of ["personalMacSignedIn", "personalWinSignedIn"] as const) {
+      const f = ALL_FIXTURES[k]();
+      for (const out of [f.firstParty, `${f.firstParty}${sep(f)}sub`]) {
+        const r = await run(f, ["capture", "--out", out]);
+        expect(r.code).toBe(2); expect(r.err).toMatch(/inside Claude's own data folder/);
+        expect(f.io.writes).toEqual([]);
+      }
+    }
+  });
+});

@@ -20,6 +20,19 @@ function insideStore(os: Ctx["env"]["os"], p: string, store: string): boolean {
 }
 
 /**
+ * The one `--out` resolver, shared by `bs migrate` and `bs capture`: expands `~` / home-relative forms against the target home,
+ * then refuses any folder inside the first-party Claude store. Returns the folder, or the refusal text and exit code to emit.
+ */
+export function resolveOutDir(ctx: Ctx, out: string): { dir: string } | { error: string; code: number } {
+  let dir: string;
+  try { dir = resolveHomePath(ctx.env.os, ctx.env.home, out); }
+  catch (e) { return { error: `--out: ${(e as Error).message}`, code: 2 }; }
+  const store = firstPartyStore(ctx);
+  if (insideStore(ctx.env.os, dir, store)) return { error: `refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`, code: 2 };
+  return { dir };
+}
+
+/**
  * `bs migrate` (spec 2026-09-30 section 4). B1 ships the checklist half only: it reads the machine and writes ONE file, instructions.md,
  * inside the output folder it owns. Nothing is applied and nothing under the first-party Claude store is touched. On a managed
  * (or managed-unknown) box the checklist is still written, with the managed notice, because it is read-only and still useful; the
@@ -42,11 +55,9 @@ export async function runMigrate(o: { ctx: Ctx; profile: Profile; checklistOnly:
   const md = renderChecklist(await legacyFacts(ctx), hosted);
   const hits = scanForSecrets([{ path: "instructions.md", content: md }]);
   if (hits.length) { stderr.write(`refusing to write the checklist: ${hits.length} secret-shaped string(s) (${hits.map((h) => `line ${h.line}, ${h.pattern}`).join("; ")})`); return 1; }
-  let dir: string;
-  try { dir = o.out !== undefined ? resolveHomePath(ctx.env.os, ctx.env.home, o.out) : pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration"); }
-  catch (e) { stderr.write(`--out: ${(e as Error).message}`); return 2; }
-  const store = firstPartyStore(ctx);
-  if (insideStore(ctx.env.os, dir, store)) { stderr.write(`refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`); return 2; }
+  const resolved = resolveOutDir(ctx, o.out ?? pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration"));
+  if ("error" in resolved) { stderr.write(resolved.error); return resolved.code; }
+  const dir = resolved.dir;
   const target = pj(ctx.env.os, dir, "instructions.md");
   const existing = await ctx.io.readFile(target);
   if (existing !== null && !existing.startsWith(CHECKLIST_MARKER)) { stderr.write(`${target} already exists and was not written by this tool, so it was left alone. Choose another folder with --out.`); return 1; }
