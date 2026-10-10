@@ -18,7 +18,7 @@ Design: `docs/superpowers/specs/2026-09-09-boot-slapper-design.md`.
 
 On a machine whose Claude Desktop is managed by policy (or whose policy cannot be read), `bs onboard --profile cornell-faculty` and
 `bs migrate` without `--checklist-only` refuse with exit code 4 and write nothing; there is no override flag. `bs migrate --checklist-only`
-still works there. `--out` may not point inside Claude's own data folder, and a leading `~` is expanded.
+still works there. On both `bs capture` and `bs migrate`, `--out` may not point inside Claude's own data folder, a leading `~` is expanded, and a relative path is taken as home-relative.
 
 In a terminal `onboard` and `doctor` draw Ink screens (plan → apply → doctor); `--headless` gives the
 line output, and `--auto` (no prompts, interactive steps skipped with a warning) implies it. Piped stdin
