@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { main } from "../../src/cli.ts";
 import { FakeIo } from "../../src/engine/io.ts";
@@ -91,6 +92,30 @@ describe("bs cli", () => {
     expect(await main(["capture", "--out", "/tmp/b"], { io, stdout: sink(), stderr: err })).toBe(1);
     expect(err.lines[0]).toMatch(/already holds a bundle/);
     expect(await main(["capture"], { io, stdout: sink(), stderr: sink() })).toBe(2);
+  });
+  it("capture --out on Windows sees through \\\\?\\ and \\\\.\\ prefixes to the first-party store and rejects drive-relative paths", async () => {
+    const home = "C:\\Users\\t", roaming = path.win32.join(home, "AppData", "Roaming"), store = path.win32.join(roaming, "Claude");
+    const winIo = () => {
+      const io = new FakeIo({ platform: "win32", home, env: { USER: "t", APPDATA: roaming }, dirs: [store] });
+      io.on(() => true, () => ({ code: 1, stdout: "", stderr: "" }));
+      return io;
+    };
+    const refusals: Array<[string, RegExp]> = [
+      [`\\\\?\\${store}`, /inside Claude's own data folder/],
+      [`\\\\?\\${path.win32.join(store, "bundle")}`, /inside Claude's own data folder/],
+      [`\\\\.\\${store}`, /inside Claude's own data folder/],
+      [`\\\\?\\${store.toUpperCase()}`, /inside Claude's own data folder/],
+      ["C:relative", /--out C:relative is drive-relative.*full path/],
+    ];
+    for (const [out, msg] of refusals) {
+      const io = winIo(); const err = sink();
+      expect(await main(["capture", "--out", out], { io, stdout: sink(), stderr: err }), out).toBe(2);
+      expect(err.lines.join("\n"), out).toMatch(msg);
+      expect(io.writes, out).toEqual([]);
+    }
+    const io = winIo(); const unc = "\\\\?\\UNC\\srv\\share\\bundle";
+    expect(await main(["capture", "--out", unc], { io, stdout: sink(), stderr: sink() })).toBe(0);
+    expect(io.writes.at(-1)).toBe(path.win32.join(unc, "manifest.json"));
   });
   it("capture refuses the whole bundle on a secret-shaped string and writes nothing", async () => {
     const io = new FakeIo({ env: { USER: "aca34" }, dirs: ["/h/.claude"], files: { "/h/.claude/notes.md": "token sk-ant-abcdefghijklmnopqrstuv\n" } });
