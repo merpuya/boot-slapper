@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { main } from "../../src/cli.ts";
 import { MANAGED_REFUSAL, SUPPORT_CONTACT } from "../../src/engine/managed-gate.ts";
@@ -13,6 +14,10 @@ const run = async (f: Fixture, args: string[]) => {
 const MANAGED = ["managedWinHklm", "managedMacProfile", "policyUnreadable"] as const;
 const outFor = (f: Fixture) => (f.io.platform === "win32" ? "C:\\Users\\t\\Documents\\claude-migration" : "/h/Documents/claude-migration");
 const sep = (f: Fixture) => (f.io.platform === "win32" ? "\\" : "/");
+/** The same Windows folder spelled through the long-path (\\?\) and device (\\.\) namespaces, in both separator styles. */
+const winNamespaced = (p: string) => ["\\\\?\\", "\\\\.\\", "//?/"].map((pre) => pre + p);
+/** --out values that name the first-party store (or a folder in it) on the Windows fixture via a namespace prefix. */
+const winStoreBypasses = (store: string) => [store, path.win32.join(store, "sub")].flatMap(winNamespaced);
 
 describe("bs onboard --profile cornell-faculty on a managed machine", () => {
   for (const k of MANAGED) {
@@ -88,6 +93,36 @@ describe("bs migrate --checklist-only", () => {
       }
     }
   });
+  it("refuses a Windows long-path or device-namespace --out that names the first-party store, and writes nothing", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    for (const out of winStoreBypasses(f.firstParty)) {
+      const r = await run(f, ["migrate", "--checklist-only", "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(/inside Claude's own data folder/);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  });
+  it("accepts a Windows long-path --out outside the store and writes there", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    const out = `\\\\?\\${path.win32.join("C:\\Users\\t", "Documents", "mine")}`;
+    expect((await run(f, ["migrate", "--checklist-only", "--out", out])).code).toBe(0);
+    expect(f.io.writes).toEqual([path.win32.join(out, "instructions.md")]);
+  });
+  it("rejects a drive-relative or drive-less rooted Windows --out with a clear message, and writes nothing", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    for (const out of ["C:relative", "C:", "c:AppData\\Roaming\\Claude", "\\Users\\t\\AppData\\Roaming\\Claude", "/Users/t/AppData/Roaming/Claude"]) {
+      const r = await run(f, ["migrate", "--checklist-only", "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(/--out .*(drive-relative|no drive letter).*full path/);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  });
+  it("refuses a namespace --out it cannot place on a drive or share (e.g. a volume GUID path)", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    for (const out of ["\\\\?\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\x", "\\\\?\\C:", "\\\\.\\PhysicalDrive0"]) {
+      const r = await run(f, ["migrate", "--checklist-only", "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(/--out .*drive letter or a UNC share/);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  });
   it("re-running regenerates only its own file (identical bytes) and refuses to overwrite a foreign instructions.md", async () => {
     const f = ALL_FIXTURES.personalMacSignedIn();
     await run(f, ["migrate", "--checklist-only"]);
@@ -149,5 +184,19 @@ describe("bs capture --out shares migrate's --out resolver", () => {
         expect(f.io.writes).toEqual([]);
       }
     }
+  });
+  it("refuses a Windows long-path or device-namespace --out that names the first-party store, and writes nothing", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    for (const out of winStoreBypasses(f.firstParty)) {
+      const r = await run(f, ["capture", "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(/inside Claude's own data folder/);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  });
+  it("rejects a drive-relative Windows --out with a clear message, and writes nothing", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    const r = await run(f, ["capture", "--out", "C:relative"]);
+    expect(r.code).toBe(2); expect(r.err).toMatch(/--out C:relative is drive-relative.*full path/);
+    expect(f.io.writes).toEqual([]);
   });
 });

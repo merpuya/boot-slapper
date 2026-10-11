@@ -20,15 +20,47 @@ function insideStore(os: Ctx["env"]["os"], p: string, store: string): boolean {
 }
 
 /**
+ * Windows `\\?\` (long-path) and `\\.\` (device) namespace prefixes name the same file as the plain path, so the lexical store
+ * check must look through them: `\\?\C:\x` → `C:\x`, `\\?\UNC\srv\share` → `\\srv\share` (either separator style).
+ * Returns null for a namespace path that is neither a drive path nor a UNC share (`\\?\Volume{…}\`, `\\.\PhysicalDrive0`, bare
+ * `\\?\C:`), which no lexical check can place relative to the store.
+ */
+function stripWin32NamespacePrefix(p: string): string | null {
+  const ns = /^[\\/]{2}[?.][\\/](.*)$/s.exec(p);
+  if (!ns) return p;
+  const rest = ns[1]!;
+  const unc = /^unc[\\/](.*)$/is.exec(rest);
+  if (unc) return `\\\\${unc[1]}`;
+  return /^[a-z]:[\\/]/i.test(rest) ? rest : null;
+}
+
+/**
+ * A Windows path that is resolved against a per-process current folder: `C:foo` / `C:` (relative to drive C:'s current folder) or
+ * `\foo` (rooted on whatever drive is current). Neither can be checked against the store lexically, so `--out` refuses both.
+ */
+function win32CurrentDriveRelativeError(out: string): string | null {
+  if (/^[a-z]:(?![\\/])/i.test(out)) return `--out ${out} is drive-relative (it depends on the current folder of drive ${out.slice(0, 2)}); give a full path such as ${out.slice(0, 2)}\\Users\\you\\Documents\\claude-migration, or a ~ path`;
+  if (/^[\\/](?![\\/])/.test(out)) return `--out ${out} has no drive letter (it depends on the current drive); give a full path such as C:\\Users\\you\\Documents\\claude-migration, or a ~ path`;
+  return null;
+}
+
+/**
  * The one `--out` resolver, shared by `bs migrate` and `bs capture`: expands `~` / home-relative forms against the target home,
- * then refuses any folder inside the first-party Claude store. Returns the folder, or the refusal text and exit code to emit.
+ * then refuses any folder inside the first-party Claude store. On Windows it first refuses drive-relative forms and compares
+ * namespace-prefixed paths (`\\?\`, `\\.\`) by their plain spelling; the folder returned keeps the spelling the user gave.
+ * Returns the folder, or the refusal text and exit code to emit.
  */
 export function resolveOutDir(ctx: Ctx, out: string): { dir: string } | { error: string; code: number } {
+  const win = ctx.env.os === "win32";
+  const driveRelative = win ? win32CurrentDriveRelativeError(out) : null;
+  if (driveRelative) return { error: driveRelative, code: 2 };
   let dir: string;
   try { dir = resolveHomePath(ctx.env.os, ctx.env.home, out); }
   catch (e) { return { error: `--out: ${(e as Error).message}`, code: 2 }; }
+  const comparable = win ? stripWin32NamespacePrefix(dir) : dir;
+  if (comparable === null) return { error: `--out ${dir} is a \\\\?\\ or \\\\.\\ path that does not continue with a drive letter or a UNC share (C:\\… or UNC\\server\\share); give a full path`, code: 2 };
   const store = firstPartyStore(ctx);
-  if (insideStore(ctx.env.os, dir, store)) return { error: `refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`, code: 2 };
+  if (insideStore(ctx.env.os, comparable, store)) return { error: `refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`, code: 2 };
   return { dir };
 }
 
