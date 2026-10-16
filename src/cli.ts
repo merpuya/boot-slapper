@@ -130,7 +130,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
       const rawOut = typeof values.out === "string" ? values.out : "";
       if (!rawOut) { stderr.write("bs capture needs --out <dir>"); stderr.write(USAGE); return 2; }
       const ctx = await ctxFor(io, profile, false, headlessReporter(stdout));
-      const resolved = resolveOutDir(ctx, rawOut);
+      const resolved = await resolveOutDir(ctx, rawOut);
       if ("error" in resolved) { stderr.write(resolved.error); return resolved.code; }
       const out = resolved.dir;
       if (await io.exists(pj(os, out, "manifest.json"))) { stderr.write(`${out} already holds a bundle (manifest.json) — choose another --out`); return 1; }

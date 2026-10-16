@@ -200,3 +200,96 @@ describe("bs capture --out shares migrate's --out resolver", () => {
     expect(f.io.writes).toEqual([]);
   });
 });
+
+/** `bs migrate` and `bs capture` share one --out resolver; every alias case below must behave identically through both. */
+const OUT_COMMANDS: Array<[string, string[]]> = [["migrate", ["migrate", "--checklist-only"]], ["capture", ["capture"]]];
+const REFUSED = /inside Claude's own data folder/;
+/** The store's drive-letter path as an admin share on `host`: `C:\Users\t\x` → `\\host\C$\Users\t\x`. */
+const adminShare = (host: string, p: string) => `\\\\${host}\\${p[0]}$${p.slice(2)}`;
+
+describe.each(OUT_COMMANDS)("%s --out: Win32 spellings that normalize onto the first-party store", (_name, args) => {
+  const refuses = async (f: Fixture, outs: string[]) => {
+    for (const out of outs) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(REFUSED);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  };
+  const accepts = async (f: Fixture, outs: string[]) => {
+    for (const out of outs) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.err, out).not.toMatch(REFUSED); expect(r.code, out).not.toBe(2);
+    }
+  };
+
+  it("refuses trailing-dot and trailing-space segments (Win32 drops them, so they land inside the store)", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn(); const s = f.firstParty;
+    await refuses(f, [`${s}.`, `${s}.\\x`, `${s}.\\x\\y`, `${s} `, `${s} \\x`, `${s}. .`, `${s}..`, `${s}.\\`, `\\\\?\\${s}.`, `\\\\?\\${s}.\\x`, `${s.toUpperCase()}.`]);
+  });
+  it("refuses a loopback admin share (localhost, 127.0.0.1, this machine's own name) onto the store, with or without a namespace prefix", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn(); const s = f.firstParty;
+    await refuses(f, [
+      adminShare("localhost", s), `${adminShare("localhost", s)}\\sub`, adminShare("LOCALHOST", s.toLowerCase()),
+      adminShare("127.0.0.1", s), adminShare(f.io.hostname, s),
+      `\\\\?\\UNC\\localhost\\${s[0]}$${s.slice(2)}`, `\\\\?\\UNC\\localhost\\${s[0]}$${s.slice(2)}\\sub`,
+      adminShare("localhost", s).replace(/\\/g, "/"),
+      `${adminShare("localhost", s)}.`,
+    ]);
+  });
+  it("still accepts look-alikes that are not the store: siblings, a dotted name, another machine's C$, a loopback share elsewhere on the drive", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn(); const s = f.firstParty;
+    await accepts(f, [`${s}.bak`, `${s}2`, `${s}.bak\\x`, adminShare("fileserver", s), adminShare("localhost", "C:\\Users\\t\\Documents\\mine"), adminShare("localhost", "D:\\Claude")]);
+  });
+  it("does not apply Windows trailing-dot folding on a posix target", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    await accepts(f, [`${f.firstParty}.`, `${f.firstParty} `, `${f.firstParty}.bak`]);
+  });
+});
+
+describe.each(OUT_COMMANDS)("%s --out: a link that points into the first-party store", (_name, args) => {
+  const refuses = async (f: Fixture, outs: string[]) => {
+    for (const out of outs) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(REFUSED);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  };
+
+  it("refuses a symlink into the store, and anything under it, on mac", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.links.set("/h/Documents/shortcut", f.firstParty);
+    await refuses(f, ["/h/Documents/shortcut", "/h/Documents/shortcut/sub", "/h/Documents/shortcut/a/b", "~/Documents/shortcut"]);
+  });
+  it("refuses a chain of links and a link into a folder inside the store", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn(); const inner = `${f.firstParty}/Cache`;
+    f.io.dirs.add(inner);
+    f.io.links.set("/h/Documents/one", "/h/Documents/two"); f.io.links.set("/h/Documents/two", inner);
+    await refuses(f, ["/h/Documents/one", "/h/Documents/one/new"]);
+  });
+  it("refuses a junction into the store on Windows, in any letter case, behind a namespace prefix, and through a parent link", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    f.io.dirs.add("C:\\Users\\t\\Documents");
+    f.io.links.set("C:\\Users\\t\\Documents\\cm", f.firstParty);
+    f.io.links.set("D:\\subst", "C:\\Users\\t\\Documents");
+    await refuses(f, ["C:\\Users\\t\\Documents\\cm", "C:\\Users\\t\\Documents\\cm\\sub", "C:\\USERS\\T\\documents\\CM\\sub", "\\\\?\\C:\\Users\\t\\Documents\\cm", "D:\\subst\\cm\\x"]);
+  });
+  it("refuses a path under the real folder the store itself is a link to", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.dirs.add("/vol/claude-data"); f.io.links.set(f.firstParty, "/vol/claude-data");
+    await refuses(f, ["/vol/claude-data", "/vol/claude-data/bundle"]);
+  });
+  it("accepts a link that points outside the store, and a missing folder under an ordinary one", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.dirs.add("/h/elsewhere"); f.io.links.set("/h/Documents/ok", "/h/elsewhere");
+    for (const out of ["/h/Documents/ok", "/h/Documents/ok/new/deeper", "/h/Documents/plain/new"]) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.err, out).not.toMatch(REFUSED); expect(r.code, out).not.toBe(2);
+    }
+  });
+  it("a link cycle does not hang the guard", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.links.set("/h/Documents/a", "/h/Documents/b"); f.io.links.set("/h/Documents/b", "/h/Documents/a");
+    const r = await run(f, [...args, "--out", "/h/Documents/a/x"]);
+    expect(r.err).not.toMatch(REFUSED);
+  });
+});
