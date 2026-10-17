@@ -293,3 +293,94 @@ describe.each(OUT_COMMANDS)("%s --out: a link that points into the first-party s
     expect(r.err).not.toMatch(REFUSED);
   });
 });
+
+/** The store's drive path through `\\host\C$`, plus a sub-folder of it: every host below must land on the store. */
+const sharesOnto = (hosts: string[], store: string) => hosts.flatMap((h) => [adminShare(h, store), `${adminShare(h, store)}\\sub`]);
+
+describe.each(OUT_COMMANDS)("%s --out: residual aliases of the first-party store (loopback range, own FQDN, NTFS directory streams, dangling links)", (_name, args) => {
+  const refuses = async (f: Fixture, outs: string[], why: RegExp = REFUSED) => {
+    for (const out of outs) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.code, out).toBe(2); expect(r.err, out).toMatch(why);
+      expect(f.io.writes, out).toEqual([]);
+    }
+  };
+  const accepts = async (f: Fixture, outs: string[]) => {
+    for (const out of outs) {
+      const r = await run(f, [...args, "--out", out]);
+      expect(r.err, out).not.toMatch(REFUSED); expect(r.code, out).not.toBe(2);
+    }
+  };
+
+  it("refuses an admin share on any 127.0.0.0/8 address, in every inet_aton spelling Windows accepts (short, octal, hex, one number)", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await refuses(f, sharesOnto(["127.0.0.2", "127.255.255.254", "127.1", "127.0.1", "0177.0.0.1", "0x7f.0.0.1", "0x7f.1", "2130706433", "0x7f000001", "127.0.0.2."], f.firstParty));
+  });
+  it("refuses an admin share on ::1 and the other IPv6-literal spellings of the local host", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await refuses(f, sharesOnto([
+      "::1", "[::1]", "0:0:0:0:0:0:0:1", "0000:0000:0000:0000:0000:0000:0000:0001", "::ffff:127.0.0.1", "[::ffff:7f00:1]", "::127.0.0.1",
+      "--1.ipv6-literal.net", "0--1.ipv6-literal.net", "0-0-0-0-0-0-0-1.ipv6-literal.net", "--1s1.ipv6-literal.net", "--FFFF-7F00-1.IPV6-LITERAL.NET", "--1.ipv6-literal.net.",
+    ], f.firstParty));
+    await refuses(f, [`\\\\?\\UNC\\::1\\${f.firstParty[0]}$${f.firstParty.slice(2)}`]);
+  });
+  it("refuses an admin share on this machine's own name with any domain suffix (the FQDN), and on localhost with one", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await refuses(f, sharesOnto([`${f.io.hostname}.corp.example.edu`, `${f.io.hostname.toUpperCase()}.Cornell.EDU`, `${f.io.hostname}.corp.example.edu.`, "localhost.localdomain"], f.firstParty));
+  });
+  it("still accepts shares on hosts that are not this machine: other addresses, link-local and other IPv6 hosts, look-alike names", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await accepts(f, sharesOnto([
+      "128.0.0.1", "126.255.255.255", "10.0.0.1", "127.0.0.1.example.com", "1.2.3.4.5", "::2", "fe80--1.ipv6-literal.net", "--2.ipv6-literal.net",
+      `${f.io.hostname}2`, `${f.io.hostname}2.corp.example.edu`, `not${f.io.hostname}`, `corp.${f.io.hostname}`, "fileserver.corp.example.edu",
+    ], f.firstParty));
+  });
+  it("refuses the NTFS directory-stream suffixes (::$INDEX_ALLOCATION, :$I30, :$I30:$INDEX_ALLOCATION) on the store or any folder above it", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn(); const s = f.firstParty; const parent = path.win32.dirname(s);
+    await refuses(f, [
+      `${s}::$INDEX_ALLOCATION`, `${s}::$INDEX_ALLOCATION\\x`, `${s}::$index_allocation\\x`, `${s}:$I30`, `${s}:$i30\\x`,
+      `${s}:$I30:$INDEX_ALLOCATION`, `${s}:$I30:$INDEX_ALLOCATION\\x`, `${parent}::$INDEX_ALLOCATION\\Claude`, `${parent}:$I30\\Claude\\x`,
+      `${s}.::$INDEX_ALLOCATION`, `\\\\?\\${s}::$INDEX_ALLOCATION`, `${adminShare("127.1", s)}::$INDEX_ALLOCATION\\x`,
+    ]);
+  });
+  it("refuses any other NTFS stream syntax in --out (a folder path never names a data stream)", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await refuses(f, [`${f.firstParty}:evil`, `${f.firstParty}::$DATA`, "C:\\Users\\t\\Documents\\mine:x", "C:\\Users\\t\\Documents\\mine::$INDEX_ALLOCATION.", "C:\\Users\\t\\Documents\\mine:$I30:$DATA"], /alternate data stream/);
+  });
+  it("accepts a directory-stream suffix on a folder outside the store (it names that folder)", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    await accepts(f, ["C:\\Users\\t\\Documents\\mine::$INDEX_ALLOCATION", `${f.firstParty}2::$INDEX_ALLOCATION`, `${f.firstParty}.bak:$I30\\x`]);
+  });
+  it("does not treat a colon in a posix --out as a stream", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    await accepts(f, ["/h/Documents/a:b", `${f.firstParty}2::$INDEX_ALLOCATION`]);
+  });
+  it("refuses a dangling link whose target (not created yet) is inside the store, on mac: absolute, relative, chained", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.dirs.add("/h/Documents");
+    f.io.links.set("/h/Documents/later", `${f.firstParty}/not-yet`);
+    f.io.links.set("/h/Documents/rel", "../Library/Application Support/Claude/new");
+    f.io.links.set("/h/Documents/hop1", "/h/Documents/hop2"); f.io.links.set("/h/Documents/hop2", `${f.firstParty}/deep/new`);
+    await refuses(f, ["/h/Documents/later", "/h/Documents/later/sub", "/h/Documents/rel", "/h/Documents/rel/x/y", "/h/Documents/hop1", "/h/Documents/hop1/z"]);
+  });
+  it("refuses a dangling link into the real folder the store is itself a link to", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.dirs.add("/vol/claude-data"); f.io.dirs.add("/h/Documents");
+    f.io.links.set(f.firstParty, "/vol/claude-data"); f.io.links.set("/h/Documents/later", "/vol/claude-data/new");
+    await refuses(f, ["/h/Documents/later", "/h/Documents/later/x"]);
+  });
+  it("refuses a dangling junction into the store on Windows, also when reached through a subst drive and a namespace prefix", async () => {
+    const f = ALL_FIXTURES.personalWinSignedIn();
+    f.io.dirs.add("C:\\Users\\t\\Documents");
+    f.io.links.set("C:\\Users\\t\\Documents\\later", `${f.firstParty}\\not-yet`);
+    f.io.links.set("D:\\subst", "C:\\Users\\t\\Documents");
+    await refuses(f, ["C:\\Users\\t\\Documents\\later", "C:\\Users\\t\\Documents\\LATER\\x", "D:\\subst\\later\\x", "\\\\?\\C:\\Users\\t\\Documents\\later\\x"]);
+  });
+  it("accepts a dangling link whose target is outside the store, and a cycle of links still does not hang", async () => {
+    const f = ALL_FIXTURES.personalMacSignedIn();
+    f.io.dirs.add("/h/Documents");
+    f.io.links.set("/h/Documents/later", "/h/elsewhere/not-yet");
+    f.io.links.set("/h/Documents/c1", "/h/Documents/c2"); f.io.links.set("/h/Documents/c2", "/h/Documents/c1");
+    await accepts(f, ["/h/Documents/later", "/h/Documents/later/x", "/h/Documents/c1/x"]);
+  });
+});
