@@ -20,6 +20,30 @@ function insideStore(os: Ctx["env"]["os"], p: string, store: string): boolean {
 }
 
 /**
+ * Win32 path normalization drops a trailing period from every segment and trailing periods and spaces from the last one, so
+ * `Claude.`, `Claude.\x` and `Claude ` all name `Claude`. Folded here for every segment (the over-fold can only refuse a
+ * look-alike, never admit the store). A segment that is nothing but dots stays: `.`/`..` resolve later, and `...` is a real name.
+ */
+function foldWin32TrailingDotsAndSpaces(p: string): string {
+  return p.split(/[\\/]/).map((seg) => {
+    const trimmed = seg.replace(/ +$/, "");
+    return /^\.*$/.test(trimmed) ? trimmed : trimmed.replace(/[. ]+$/, "");
+  }).join("\\");
+}
+
+/**
+ * `\\localhost\C$\x`, `\\127.0.0.1\C$\x` and `\\<this machine>\C$\x` are the local `C:\x` reached through the administrative
+ * share. Maps them back to the drive path; any other host (or a non-drive share such as `ADMIN$`) is left as the UNC path it is.
+ */
+function mapLoopbackAdminShare(ctx: Ctx, p: string): string {
+  const m = /^[\\/]{2}([^\\/]+)[\\/]([a-z])\$(?:[\\/](.*))?$/is.exec(p);
+  if (!m) return p;
+  const host = m[1]!.replace(/\.$/, "").toLowerCase();
+  const own = new Set(["localhost", "127.0.0.1", ctx.io.hostname.toLowerCase()]);
+  return own.has(host) ? `${m[2]!.toUpperCase()}:\\${m[3] ?? ""}` : p;
+}
+
+/**
  * Windows `\\?\` (long-path) and `\\.\` (device) namespace prefixes name the same file as the plain path, so the lexical store
  * check must look through them: `\\?\C:\x` → `C:\x`, `\\?\UNC\srv\share` → `\\srv\share` (either separator style).
  * Returns null for a namespace path that is neither a drive path nor a UNC share (`\\?\Volume{…}\`, `\\.\PhysicalDrive0`, bare
@@ -44,23 +68,56 @@ function win32CurrentDriveRelativeError(out: string): string | null {
   return null;
 }
 
+/** The path as the filesystem will see it, for the lexical store comparison: namespace prefix, loopback admin share and trailing dots/spaces folded away (Windows only). */
+function win32Canonical(ctx: Ctx, p: string): string | null {
+  const plain = stripWin32NamespacePrefix(p);
+  return plain === null ? null : foldWin32TrailingDotsAndSpaces(mapLoopbackAdminShare(ctx, plain));
+}
+
+/**
+ * `p` with the nearest EXISTING ancestor replaced by its real location (links, junctions, `subst` drives, 8.3 names resolved by
+ * the OS), the not-yet-created tail re-attached. A path nothing of which exists comes back unchanged.
+ */
+async function realLocation(ctx: Ctx, p: string): Promise<string> {
+  const flavour = ctx.env.os === "win32" ? path.win32 : path.posix;
+  const tail: string[] = [];
+  let cur = p;
+  for (;;) {
+    const real = await ctx.io.realpath(cur);
+    if (real !== null) return flavour.join(real, ...tail);
+    const parent = flavour.dirname(cur);
+    if (parent === cur) return p;
+    tail.unshift(flavour.basename(cur));
+    cur = parent;
+  }
+}
+
 /**
  * The one `--out` resolver, shared by `bs migrate` and `bs capture`: expands `~` / home-relative forms against the target home,
- * then refuses any folder inside the first-party Claude store. On Windows it first refuses drive-relative forms and compares
- * namespace-prefixed paths (`\\?\`, `\\.\`) by their plain spelling; the folder returned keeps the spelling the user gave.
- * Returns the folder, or the refusal text and exit code to emit.
+ * then refuses any folder inside the first-party Claude store. On Windows it first refuses drive-relative forms, then compares by
+ * the spelling the filesystem will resolve: namespace prefixes (`\\?\`, `\\.\`), loopback admin shares and trailing dots/spaces
+ * are folded away. On every OS it also resolves the nearest existing ancestor through the Io (symlinks, junctions, `subst`, 8.3
+ * names) and refuses a folder that really lives in the store, or in the real folder the store itself is a link to. The folder
+ * returned keeps the spelling the user gave. Returns the folder, or the refusal text and exit code to emit.
+ * Not covered: a dangling link whose target does not exist yet (it has no real path to resolve until something creates it).
  */
-export function resolveOutDir(ctx: Ctx, out: string): { dir: string } | { error: string; code: number } {
+export async function resolveOutDir(ctx: Ctx, out: string): Promise<{ dir: string } | { error: string; code: number }> {
   const win = ctx.env.os === "win32";
   const driveRelative = win ? win32CurrentDriveRelativeError(out) : null;
   if (driveRelative) return { error: driveRelative, code: 2 };
   let dir: string;
   try { dir = resolveHomePath(ctx.env.os, ctx.env.home, out); }
   catch (e) { return { error: `--out: ${(e as Error).message}`, code: 2 }; }
-  const comparable = win ? stripWin32NamespacePrefix(dir) : dir;
+  const comparable = win ? win32Canonical(ctx, dir) : dir;
   if (comparable === null) return { error: `--out ${dir} is a \\\\?\\ or \\\\.\\ path that does not continue with a drive letter or a UNC share (C:\\… or UNC\\server\\share); give a full path`, code: 2 };
   const store = firstPartyStore(ctx);
-  if (insideStore(ctx.env.os, comparable, store)) return { error: `refusing --out ${dir}: it is inside Claude's own data folder (${store}). Choose another folder.`, code: 2 };
+  const refusal = (via: string) => ({ error: `refusing --out ${dir}: it is inside Claude's own data folder (${store})${via}. Choose another folder.`, code: 2 });
+  if (insideStore(ctx.env.os, comparable, store)) return refusal("");
+  const real = await realLocation(ctx, comparable);
+  const realOf = (x: string) => (win ? win32Canonical(ctx, x) ?? x : x);
+  const realStore = realOf((await ctx.io.realpath(store)) ?? store);
+  const realOut = realOf(real);
+  if (insideStore(ctx.env.os, realOut, store) || insideStore(ctx.env.os, realOut, realStore)) return refusal(` — it resolves to ${realOut}`);
   return { dir };
 }
 
@@ -87,7 +144,7 @@ export async function runMigrate(o: { ctx: Ctx; profile: Profile; checklistOnly:
   const md = renderChecklist(await legacyFacts(ctx), hosted);
   const hits = scanForSecrets([{ path: "instructions.md", content: md }]);
   if (hits.length) { stderr.write(`refusing to write the checklist: ${hits.length} secret-shaped string(s) (${hits.map((h) => `line ${h.line}, ${h.pattern}`).join("; ")})`); return 1; }
-  const resolved = resolveOutDir(ctx, o.out ?? pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration"));
+  const resolved = await resolveOutDir(ctx, o.out ?? pj(ctx.env.os, ctx.env.home, "Documents", "claude-migration"));
   if ("error" in resolved) { stderr.write(resolved.error); return resolved.code; }
   const dir = resolved.dir;
   const target = pj(ctx.env.os, dir, "instructions.md");

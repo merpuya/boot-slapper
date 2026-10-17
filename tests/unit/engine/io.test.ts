@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FakeIo, RealIo } from "../../../src/engine/io.ts";
 
@@ -87,5 +90,27 @@ describe("RealIo.killLive", () => {
     expect(r.code).not.toBe(0);
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(await io.exec("echo", ["hi"])).toMatchObject({ code: 130, stderr: "[interrupted]" });
+  });
+
+  it("realpath follows links (any depth, any case on a win32 fake), returns null for a missing path, and null for a link cycle", async () => {
+    const io = new FakeIo({ platform: "win32", home: "C:\\h", dirs: ["C:\\real\\store"], links: { "C:\\h\\a": "C:\\h\\b", "C:\\h\\b": "C:\\real\\store", "C:\\h\\x": "C:\\h\\y", "C:\\h\\y": "C:\\h\\x" } });
+    expect(await io.realpath("C:\\h\\a")).toBe("C:\\real\\store");
+    expect(await io.realpath("C:\\H\\A")).toBe("C:\\real\\store");
+    expect(await io.realpath("C:\\real\\store")).toBe("C:\\real\\store");
+    expect(await io.realpath("C:\\real\\nope")).toBeNull();
+    expect(await io.realpath("C:\\h\\x")).toBeNull();
+  });
+});
+
+describe("RealIo.realpath", () => {
+  it("resolves a symlink to its target and returns null for a path that does not exist", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "bs-realpath-"));
+    try {
+      mkdirSync(path.join(root, "real"));
+      symlinkSync(path.join(root, "real"), path.join(root, "link"));
+      const io = new RealIo();
+      expect(await io.realpath(path.join(root, "link"))).toBe(await io.realpath(path.join(root, "real")));
+      expect(await io.realpath(path.join(root, "link", "missing"))).toBeNull();
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

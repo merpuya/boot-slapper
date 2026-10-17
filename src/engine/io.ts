@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { promises as fs, realpath as realpathCb } from "node:fs";
 import { homedir, hostname, platform as osPlatform } from "node:os";
 import path from "node:path";
 
@@ -20,6 +20,11 @@ export interface Io {
   copyFile(src: string, dst: string): Promise<void>;
   exists(p: string): Promise<boolean>;
   isDir(p: string): Promise<boolean>;
+  /**
+   * The canonical on-disk spelling of an EXISTING path: symlinks, junctions, `subst` drives and 8.3 short names resolved. Null when
+   * the path does not exist (or cannot be read), so callers walk up to the nearest ancestor that does.
+   */
+  realpath(p: string): Promise<string | null>;
   mkdirp(p: string, opts?: { mode?: number }): Promise<void>;
   readdir(p: string): Promise<string[]>;
   exec(cmd: string, args: string[], opts?: ExecOpts): Promise<ExecResult>;
@@ -66,6 +71,10 @@ export class RealIo implements Io {
   }
   async isDir(p: string): Promise<boolean> {
     try { return (await fs.stat(p)).isDirectory(); } catch { return false; }
+  }
+  async realpath(p: string): Promise<string | null> {
+    // .native asks the OS (GetFinalPathNameByHandle on Windows), which expands 8.3 names and junctions; the JS walker does not.
+    return new Promise((resolve) => realpathCb.native(p, (err, rp) => resolve(err ? null : rp)));
   }
   async mkdirp(p: string, opts?: { mode?: number }): Promise<void> {
     await fs.mkdir(p, { recursive: true, mode: opts?.mode });
@@ -133,6 +142,8 @@ export class FakeIo implements Io {
   files: Map<string, string>;
   dirs: Set<string>;
   modes = new Map<string, number>();
+  /** Symlinks, junctions and `subst` drives: link path → the path it points at. Only `realpath` follows them. */
+  links = new Map<string, string>();
   calls: ExecCall[] = [];
   writes: string[] = [];
   fetches: Array<{ url: string; init: FetchInit }> = [];
@@ -143,7 +154,7 @@ export class FakeIo implements Io {
   constructor(init: {
     platform?: NodeJS.Platform; home?: string; hostname?: string;
     env?: Record<string, string | undefined>; files?: Record<string, string>;
-    dirs?: string[]; path?: Record<string, string>;
+    dirs?: string[]; path?: Record<string, string>; links?: Record<string, string>;
   } = {}) {
     this.platform = init.platform ?? "darwin";
     this.home = init.home ?? "/h";
@@ -154,6 +165,7 @@ export class FakeIo implements Io {
     for (const f of this.files.keys()) this.addParents(f);
     for (const d of [...this.dirs]) this.addParents(d);
     this.pathMap = init.path ?? {};
+    this.links = new Map(Object.entries(init.links ?? {}));
   }
   /** Path flavour of the simulated machine: a win32 fake has backslash paths that posix dirname cannot split. */
   private get pp() { return this.platform === "win32" ? path.win32 : path.posix; }
@@ -179,6 +191,17 @@ export class FakeIo implements Io {
   }
   async exists(p: string) { return this.files.has(p) || this.dirs.has(p); }
   async isDir(p: string) { return this.dirs.has(p); }
+  async realpath(p: string) {
+    const pp = this.pp;
+    const fold = (x: string) => (this.platform === "linux" ? x : x.toLowerCase());
+    let cur = p;
+    for (let hop = 0; hop < 40; hop++) {
+      const hit = [...this.links].find(([l]) => fold(cur) === fold(l) || fold(cur).startsWith(fold(l) + pp.sep));
+      if (!hit) return (await this.exists(cur)) ? cur : null;
+      cur = hit[1] + cur.slice(hit[0].length);
+    }
+    return null;   // a link cycle: ELOOP
+  }
   async mkdirp(p: string) { this.dirs.add(p); this.addParents(p + this.pp.sep + "x"); }
   async readdir(p: string) {
     if (!this.dirs.has(p)) return [];
