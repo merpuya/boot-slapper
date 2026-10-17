@@ -114,3 +114,36 @@ describe("RealIo.realpath", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
+
+describe("Io.lstat / Io.readlink", () => {
+  it("FakeIo: a dangling link is still a link (realpath cannot see it), found by its own spelling or through a linked parent", async () => {
+    const io = new FakeIo({ platform: "win32", home: "C:\\h", dirs: ["C:\\h\\docs", "C:\\h\\plain"], links: { "C:\\h\\docs\\later": "C:\\store\\not-yet", "D:\\subst": "C:\\h\\docs", "C:\\h\\docs\\rel": "..\\plain" } });
+    expect(await io.realpath("C:\\h\\docs\\later")).toBeNull();
+    expect(await io.lstat("C:\\h\\docs\\later")).toEqual({ isSymbolicLink: true });
+    expect(await io.lstat("C:\\H\\DOCS\\LATER")).toEqual({ isSymbolicLink: true });
+    expect(await io.lstat("D:\\subst\\later")).toEqual({ isSymbolicLink: true });
+    expect(await io.readlink("D:\\subst\\later")).toBe("C:\\store\\not-yet");
+    expect(await io.readlink("C:\\h\\docs\\rel")).toBe("..\\plain");
+    expect(await io.lstat("C:\\h\\plain")).toEqual({ isSymbolicLink: false });
+    expect(await io.readlink("C:\\h\\plain")).toBeNull();
+    expect(await io.lstat("C:\\h\\nothing")).toBeNull();
+    expect(await io.readlink("C:\\h\\nothing")).toBeNull();
+  });
+  it("RealIo: reports a dangling link as a link with its stored target, a plain folder as not a link, and null for a missing path", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "bs-lstat-"));
+    try {
+      const target = path.join(root, "not-yet"), link = path.join(root, "later");
+      // A junction needs no privilege on Windows (a symlink does); the type argument is ignored elsewhere.
+      symlinkSync(target, link, process.platform === "win32" ? "junction" : undefined);
+      const io = new RealIo();
+      expect(await io.realpath(link)).toBeNull();
+      expect(await io.lstat(link)).toEqual({ isSymbolicLink: true });
+      // Windows may hand a junction's target back with a \\?\ prefix or a trailing separator; compare the folder it names.
+      const named = (x: string) => { const r = path.resolve(root, x.replace(/^\\\\\?\\/, "")); return process.platform === "win32" ? r.toLowerCase() : r; };
+      expect(named((await io.readlink(link))!)).toBe(named(target));
+      expect(await io.lstat(root)).toEqual({ isSymbolicLink: false });
+      expect(await io.readlink(root)).toBeNull();
+      expect(await io.lstat(path.join(root, "missing"))).toBeNull();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});

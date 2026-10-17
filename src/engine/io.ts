@@ -25,6 +25,13 @@ export interface Io {
    * the path does not exist (or cannot be read), so callers walk up to the nearest ancestor that does.
    */
   realpath(p: string): Promise<string | null>;
+  /**
+   * Whether `p` is itself a link (symlink or junction), WITHOUT following it; the folders above it are followed. Null when nothing
+   * is there at all. A dangling link (its target missing) is still `{ isSymbolicLink: true }`, which `realpath` cannot report.
+   */
+  lstat(p: string): Promise<{ isSymbolicLink: boolean } | null>;
+  /** The target a link stores, as written (it may be relative to the link's folder). Null when `p` is not a link. */
+  readlink(p: string): Promise<string | null>;
   mkdirp(p: string, opts?: { mode?: number }): Promise<void>;
   readdir(p: string): Promise<string[]>;
   exec(cmd: string, args: string[], opts?: ExecOpts): Promise<ExecResult>;
@@ -75,6 +82,13 @@ export class RealIo implements Io {
   async realpath(p: string): Promise<string | null> {
     // .native asks the OS (GetFinalPathNameByHandle on Windows), which expands 8.3 names and junctions; the JS walker does not.
     return new Promise((resolve) => realpathCb.native(p, (err, rp) => resolve(err ? null : rp)));
+  }
+  async lstat(p: string): Promise<{ isSymbolicLink: boolean } | null> {
+    // On Windows a junction reports isSymbolicLink() too (libuv maps IO_REPARSE_TAG_MOUNT_POINT to a link).
+    try { return { isSymbolicLink: (await fs.lstat(p)).isSymbolicLink() }; } catch { return null; }
+  }
+  async readlink(p: string): Promise<string | null> {
+    try { return await fs.readlink(p); } catch { return null; }
   }
   async mkdirp(p: string, opts?: { mode?: number }): Promise<void> {
     await fs.mkdir(p, { recursive: true, mode: opts?.mode });
@@ -202,6 +216,19 @@ export class FakeIo implements Io {
     }
     return null;   // a link cycle: ELOOP
   }
+  /** The `links` key `p` names: either spelled as given, or with the folders above it resolved (as the OS resolves them). */
+  private async linkAt(p: string): Promise<[string, string] | undefined> {
+    const pp = this.pp;
+    const fold = (x: string) => (this.platform === "linux" ? x : x.toLowerCase());
+    const parent = await this.realpath(pp.dirname(p));
+    const spellings = [p, ...(parent === null ? [] : [pp.join(parent, pp.basename(p))])].map(fold);
+    return [...this.links].find(([l]) => spellings.includes(fold(l)));
+  }
+  async lstat(p: string) {
+    if (await this.linkAt(p)) return { isSymbolicLink: true };
+    return (await this.realpath(p)) !== null ? { isSymbolicLink: false } : null;
+  }
+  async readlink(p: string) { return (await this.linkAt(p))?.[1] ?? null; }
   async mkdirp(p: string) { this.dirs.add(p); this.addParents(p + this.pp.sep + "x"); }
   async readdir(p: string) {
     if (!this.dirs.has(p)) return [];
