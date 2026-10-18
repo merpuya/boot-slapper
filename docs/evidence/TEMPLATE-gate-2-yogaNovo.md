@@ -13,8 +13,8 @@ Command shell: everything below is for Git Bash on the box (the fleet's Windows 
 | Field | Value (last known -> re-read today) |
 |---|---|
 | Date / operator | ____ / ____ |
-| Box | yogaNovo, Lenovo Yoga Slim 7x Gen 9, Snapdragon X Elite (arm64), personal, unmanaged. Last known OS string in `devices/yogaNovo.json`: `mingw64_nt-10.0-26220-arm64` |
-| Device label (`env.label` in the doctor JSON) | ____ (device config file is `devices/yogaNovo.json`, label `yogaNovo`) |
+| Box | yogaNovo, Lenovo Yoga Slim 7x Gen 9, Snapdragon X Elite (arm64), personal, unmanaged. Last known OS string in `claude-memory-sync/devices/yogaNovo.json`: `mingw64_nt-10.0-26220-arm64` |
+| Device label (`env.label` in the doctor JSON) | ____ (device config file is `claude-memory-sync/devices/yogaNovo.json`, label `yogaNovo`) |
 | boot-slapper checkout | `git -C <checkout> rev-parse --short HEAD` = ____ (main was `de8efa7` on 2026-10-17); tree clean? ____ |
 | Claude Desktop | version ____ (last known 2.2553.0.0 on 2026-09-18); MSIX package name `Claude`, family `Claude_pzs8sxrjxfjjc` last known |
 | Claude Code | `claude --version` = ____ |
@@ -71,7 +71,7 @@ Want: helper ok >= 1, `connected { name: 'mecp' ... auth: 'headers-helper' }` >=
 
 ## 5. Memory round-trip (runbook step 5), both directions
 
-The yogaNovo device config maps only `dotfiles` (`devices/yogaNovo.json`); `dotfiles` is auto-mapped on mac-studio (`sync-memory list` there shows it with 18 md files), so it is the one project that already exists on both ends with no config edit. (The runbook suggests `mecp`; that needs `sync-memory map ... --apply` plus a `~/projects/mecp` checkout on yogaNovo - use it only if you prefer, and record which.) Project used: ____
+The yogaNovo device config maps only `dotfiles` (`claude-memory-sync/devices/yogaNovo.json`); `dotfiles` is auto-mapped on mac-studio (`sync-memory list` there shows it with 18 md files), so it is the one project that already exists on both ends with no config edit. (The runbook suggests `mecp`; that needs `sync-memory map ... --apply` plus a `~/projects/mecp` checkout on yogaNovo - use it only if you prefer, and record which.) Project used: ____
 
 Probe mechanism (the same one used for the `JCB-AL-AV01` direction): create the file in the mapped memory dir, `sync-memory --device <label> push`, `node ~/.claude/scripts/memory-auto-sync.mjs end`, then `node ~/.claude/scripts/memory-auto-sync.mjs start` on the other box. That chain was rehearsed end to end on throwaway clones for a maude-stacks probe; the dotfiles variant is the same code path with different names and was not separately rehearsed. Probe files: `sync-probe-yoganovo-to-mac-studio.md` (token `PROBE-YOGANOVO-TO-MSTUDIO-<date>`) and `sync-probe-mac-studio-to-yoganovo.md` (token `PROBE-MSTUDIO-TO-YOGANOVO-<date>`).
 
@@ -80,7 +80,7 @@ Probe mechanism (the same one used for the `JCB-AL-AV01` direction): create the 
 | yogaNovo -> mac-studio | ____ | ____ | ____ | ____ (want 0) |
 | mac-studio -> yogaNovo | ____ | ____ | ____ | ____ (want 0) |
 
-yogaNovo memory dir: `C:/Users/merpu/.claude/projects/C--Users-merpu-projects-dotfiles/memory` (from `devices/yogaNovo.json`). mac-studio dotfiles dir: `/Users/alex/.claude/projects/-Users-alex-projects-dotfiles/memory`.
+yogaNovo memory dir: `C:/Users/merpu/.claude/projects/C--Users-merpu-projects-dotfiles/memory` (from `claude-memory-sync/devices/yogaNovo.json`). mac-studio dotfiles dir: `/Users/alex/.claude/projects/-Users-alex-projects-dotfiles/memory`.
 
 Cleanup: remove both probe files from the repo and both local dirs with `git rm` in the memory repo, a local `rm`, then `memory-auto-sync.mjs end`, then confirm the other box's next start drops them. Cleaned: ____
 
