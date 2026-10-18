@@ -39,6 +39,10 @@ its whole-box doctor and evidence file exist. The pull direction AV01 → mac-st
 history (`docs/cutover/gate-2-evidence-macos-roundtrip.md`, a draft); the mac-studio → AV01 direction is not observable from
 the repo and needs one check on `JCB-AL-AV01`. Dating note: this table was last verified against the repo on 2026-09-24.
 
+The yogaNovo sitting has a fill-in template: [`docs/evidence/TEMPLATE-gate-2-yogaNovo.md`](../evidence/TEMPLATE-gate-2-yogaNovo.md)
+(preconditions, onboard, whole-box doctor + JSON capture and summarizer, the two arm64 unknowns, Desktop log evidence, both-direction
+memory round-trip, verdict table). Copy it to `docs/cutover/gate-2-evidence-yogaNovo.md` and fill it during the sitting.
+
 ## On each new box
 
 1. Fresh-box shim: macOS `curl -fsSL https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.sh | bash`, Windows
