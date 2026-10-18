@@ -34,7 +34,9 @@ Neither leg meets the condition block yet. What is and is not recorded:
 | `yogaNovo` (Windows) | three desktop artifacts `present` 2026-09-18 (handoff `2026-09-18-1108`) | per-artifact greens only; no whole-box run recorded | none — `docs/evidence/` holds only the mac-studio file and the yogaNovo template | not run |
 | macOS | **`mac-studio` (the spec §6 second Mac) arrived 2026-09-23.** Fresh-entry route: all three desktop artifacts `present` 2026-09-24 after the owner's first in-app apply (entry re-serialized, two owned keys dropped — see CLAUDE.md; `docSatisfies` now reads them as app defaults). Every other artifact present; all four secrets in place | **all checks passed** 2026-09-24 13:50 EDT: 67 ok, 0 errors, 3 warns (a `/private/var` temp memory dir, the live-session `mct` transcript, the Code-side Open Brain grant pending a `claude-gw` session) | `docs/evidence/mac-studio-2026-09-24.json` | push half done (this box created and pushed the `boot-slapper` memory project, claude-memory-sync `1649001`); pull half not yet confirmed from another box, and the JCB-AL-ACA34 probe lives in `dotfiles`, which is not in this box's device config (it is auto-mapped at run time) |
 
-Next yogaNovo session, in order: whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against
+Next yogaNovo session, in order: `bs onboard` first (the template's section 2 — the 2026-09-18 `present` result predates
+`cornell_secure_tools` joining the managed-server bundle on 2026-09-24, so `desktop-mcp` reads the old two-server entry as drifted
+until onboarding writes the third server and its helper), then whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against
 `mac-studio` using the `dotfiles` project — `devices/yogaNovo.json` in claude-memory-sync maps it on yogaNovo, and mac-studio auto-maps
 it at run time (`devices/mac-studio.kearnsapuya.net.json` does not list it). The template's section 5 records which project was used; `mecp` is not
 mapped on yogaNovo, so it would need `sync-memory map … --apply` plus a `~/projects/mecp` checkout first.
