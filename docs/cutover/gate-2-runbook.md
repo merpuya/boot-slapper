@@ -18,10 +18,12 @@ both; memory-sync round-trip verified from each. Until then nothing below is app
 > both in the step-4 evidence file. An arm64-only result does not transfer to the x64 Cornell fleet; `alienTop` (x64,
 > personal) is the tiebreak box if they diverge.
 >
-> **3P mode has never run on `yogaNovo`** (`4efe63a`): `desktop-skills` blocks on "Cowork has not run in third-party mode"
-> and `resolveDesktopStore` reports the default store with `live: false`. Step 3 below is therefore not optional there —
-> sign in to third-party mode and open Cowork once before expecting the configLibrary write path, the `.ps1` helper spawn,
-> or v2-entry survival to close. Picking this box is a decision about where to prove Windows, not a result.
+> **3P mode has run on `yogaNovo` since 2026-09-18** (Desktop 2.2553.0.0; CLAUDE.md, the "Windows, verified on YOGANOVO" line): `resolveDesktopStore`
+> reports `%LOCALAPPDATA%\Claude-3p` **live on evidence** (a real `configLibrary\_meta.json`), `desktop-skills` is fully verified, and all three
+> desktop artifacts report `present`. Before that first run (`4efe63a`) `desktop-skills` blocked on "Cowork has not run in third-party mode" and
+> `resolveDesktopStore` reported the default store with `live: false`. Step 3 below is still the order of operations on a *fresh* box — sign in to
+> third-party mode and open Cowork once before expecting the configLibrary write path, the `.ps1` helper spawn, or v2-entry survival to close — but on
+> `yogaNovo` it is already done; what remains there is the whole-box doctor, the evidence file and the memory round-trip.
 
 ## Status — 2026-09-19
 
@@ -29,12 +31,16 @@ Neither leg meets the condition block yet. What is and is not recorded:
 
 | Leg | `bs onboard` | `bs doctor` (whole box) | evidence file (step 4) | memory round-trip (step 5) |
 |---|---|---|---|---|
-| `yogaNovo` (Windows) | three desktop artifacts `present` 2026-09-18 (handoff `2026-09-18-1108`) | per-artifact greens only; no whole-box run recorded | none — `docs/evidence/` has never existed in this repo | not run |
-| macOS | **`mac-studio` (the spec §6 second Mac) arrived 2026-09-23.** Fresh-entry route: all three desktop artifacts `present` 2026-09-24 after the owner's first in-app apply (entry re-serialized, two owned keys dropped — see CLAUDE.md; `docSatisfies` now reads them as app defaults). Every other artifact present; all four secrets in place | **all checks passed** 2026-09-24 13:50 EDT: 67 ok, 0 errors, 3 warns (a `/private/var` temp memory dir, the live-session `mct` transcript, the Code-side Open Brain grant pending a `claude-gw` session) | `docs/evidence/mac-studio-2026-09-24.json` | push half done (this box created and pushed the `boot-slapper` memory project, claude-memory-sync `1649001`); pull half not yet confirmed from another box, and the JCB-AL-ACA34 probe lives in `dotfiles`, which is not mapped here |
+| `yogaNovo` (Windows) | three desktop artifacts `present` 2026-09-18 (handoff `2026-09-18-1108`) | per-artifact greens only; no whole-box run recorded | none — `docs/evidence/` holds only the mac-studio file and the yogaNovo template | not run |
+| macOS | **`mac-studio` (the spec §6 second Mac) arrived 2026-09-23.** Fresh-entry route: all three desktop artifacts `present` 2026-09-24 after the owner's first in-app apply (entry re-serialized, two owned keys dropped — see CLAUDE.md; `docSatisfies` now reads them as app defaults). Every other artifact present; all four secrets in place | **all checks passed** 2026-09-24 13:50 EDT: 67 ok, 0 errors, 3 warns (a `/private/var` temp memory dir, the live-session `mct` transcript, the Code-side Open Brain grant pending a `claude-gw` session) | `docs/evidence/mac-studio-2026-09-24.json` | push half done (this box created and pushed the `boot-slapper` memory project, claude-memory-sync `1649001`); pull half not yet confirmed from another box, and the JCB-AL-ACA34 probe lives in `dotfiles`, which is not in this box's device config (it is auto-mapped at run time) |
 
-Next yogaNovo session, in order: whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against
-`mac-studio` — `mecp` is mapped on both, so use it (boot-slapper's own memory dir is *not* mapped on yogaNovo; map `mecp`
-there first). The macOS leg no longer waits on anything but its round-trip's second half: `mac-studio` is the second Mac and
+Next yogaNovo session, in order: `bs onboard` first (the template's section 2 — the 2026-09-18 `present` result predates
+`cornell_secure_tools` joining the managed-server bundle on 2026-09-24, so `desktop-mcp` reads the old two-server entry as drifted
+until onboarding writes the third server and its helper), then whole-box `bs doctor --json > docs/evidence/yogaNovo-<date>.json`, then step 5 against
+`mac-studio` using the `dotfiles` project — `devices/yogaNovo.json` in claude-memory-sync maps it on yogaNovo, and mac-studio auto-maps
+it at run time (`devices/mac-studio.kearnsapuya.net.json` does not list it). The template's section 5 records which project was used; `mecp` is not
+mapped on yogaNovo, so it would need `sync-memory map … --apply` plus a `~/projects/mecp` checkout first.
+The macOS leg no longer waits on anything but its round-trip's second half: `mac-studio` is the second Mac and
 its whole-box doctor and evidence file exist. The pull direction AV01 → mac-studio is already evidenced by organic auto-sync
 history (`docs/cutover/gate-2-evidence-macos-roundtrip.md`, a draft); the mac-studio → AV01 direction is not observable from
 the repo and needs one check on `JCB-AL-AV01`. Dating note: this table was last verified against the repo on 2026-09-24.

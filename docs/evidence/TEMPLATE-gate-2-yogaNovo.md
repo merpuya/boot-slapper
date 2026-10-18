@@ -71,7 +71,7 @@ Want: helper ok >= 1, mecp via `headers-helper` >= 1, openbrain via `oauth-cache
 
 ## 5. Memory round-trip (runbook step 5), both directions
 
-The yogaNovo device config maps only `dotfiles` (`claude-memory-sync/devices/yogaNovo.json`); `dotfiles` is auto-mapped on mac-studio (`sync-memory list` there shows it with 18 md files), so it is the one project that already exists on both ends with no config edit. (The runbook suggests `mecp`; that needs `sync-memory map ... --apply` plus a `~/projects/mecp` checkout on yogaNovo - use it only if you prefer, and record which.) Project used: ____
+The yogaNovo device config maps only `dotfiles` (`claude-memory-sync/devices/yogaNovo.json`); `dotfiles` is auto-mapped on mac-studio (`sync-memory list` there shows it with 18 md files), so it is the one project that already exists on both ends with no config edit. (The runbook also uses `dotfiles`; `mecp` would need `sync-memory map ... --apply` plus a `~/projects/mecp` checkout on yogaNovo - use it only if you prefer, and record which.) Project used: ____
 
 Probe mechanism (the same one used for the `JCB-AL-AV01` direction): create the file in the mapped memory dir, `sync-memory --device <label> push`, `node ~/.claude/scripts/memory-auto-sync.mjs end`, then `node ~/.claude/scripts/memory-auto-sync.mjs start` on the other box. That chain was rehearsed end to end on throwaway clones for a maude-stacks probe; the dotfiles variant is the same code path with different names and was not separately rehearsed. Probe files: `sync-probe-yoganovo-to-mac-studio.md` (token `PROBE-YOGANOVO-TO-MSTUDIO-<date>`) and `sync-probe-mac-studio-to-yoganovo.md` (token `PROBE-MSTUDIO-TO-YOGANOVO-<date>`).
 
