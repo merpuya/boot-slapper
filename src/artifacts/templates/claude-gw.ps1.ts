@@ -11,13 +11,14 @@ function claude-gw {
   $mecp = ''
   try { $c = $v.Retrieve('mecp-device-token', $acct); $c.RetrievePassword(); $mecp = $c.Password }
   catch { Write-Warning "claude-gw: no MeCP device token — mecp tools will 401. Run: bs secrets set mecp-device-token" }
-  $names = 'ANTHROPIC_BASE_URL','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS','DISABLE_TELEMETRY','MECP_DEVICE_TOKEN'
+  $names = 'ANTHROPIC_BASE_URL','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS','DISABLE_TELEMETRY','ENABLE_PROMPT_CACHING_1H','MECP_DEVICE_TOKEN'
   $saved = @{}
   foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n, 'Process') }
   $env:ANTHROPIC_BASE_URL = '${o.baseUrl}'
   $env:ANTHROPIC_AUTH_TOKEN = $gw
   $env:CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = '1'
   $env:DISABLE_TELEMETRY = '1'
+  $env:ENABLE_PROMPT_CACHING_1H = '1'
   $env:MECP_DEVICE_TOKEN = $mecp
   try { & claude --mcp-config "${homeRel(o.mcpBundle, o.home)}" @args }
   finally { foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $saved[$n], 'Process') } }

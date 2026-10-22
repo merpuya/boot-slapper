@@ -25,6 +25,7 @@ describe("gateway-launch (darwin)", () => {
     const wrapper = io.files.get("/h/.config/boot-slapper/claude-gw.zsh")!;
     expect(wrapper).toContain('ANTHROPIC_BASE_URL="https://api.ai.it.cornell.edu"');
     expect(wrapper).toContain('--mcp-config "$HOME/.claude/mcp/gateway.json"');
+    expect(wrapper).toContain("ENABLE_PROMPT_CACHING_1H=1 \\");
     expect(wrapper).not.toContain("s3cr3t-val");
     expect(io.files.get("/h/.zshrc")).toBe(`export FOO=1\n[ -f "$HOME/.config/boot-slapper/claude-gw.zsh" ] && source "$HOME/.config/boot-slapper/claude-gw.zsh"  ${MARKER}\n`);
     expect(await gatewayLaunch.detect(ctx)).toEqual({ kind: "present" });
@@ -67,6 +68,8 @@ describe("gateway-launch (win32)", () => {
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("$env:ANTHROPIC_BASE_URL = 'https://api.ai.it.cornell.edu'");
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain('--mcp-config "$env:USERPROFILE\\.claude\\mcp\\gateway.json"');
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("[Environment]::SetEnvironmentVariable($n, $saved[$n], 'Process')");
+    expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("$env:ENABLE_PROMPT_CACHING_1H = '1'");
+    expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw.ps1`)).toContain("'DISABLE_TELEMETRY','ENABLE_PROMPT_CACHING_1H','MECP_DEVICE_TOKEN'"); // restored in finally
     expect(io.files.get(`${home}\\.config\\boot-slapper\\claude-gw-run.ps1`)).toContain("claude-gw @args");
     expect(io.files.get(`${home}\\.local\\bin\\claude-gw.cmd`)).toMatch(/^@echo off\r\n/);
     expect(io.files.get(`${home}\\.local\\bin\\claude-gw.cmd`)).toContain('-File "%USERPROFILE%\\.config\\boot-slapper\\claude-gw-run.ps1" %*');

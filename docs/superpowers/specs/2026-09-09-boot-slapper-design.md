@@ -144,7 +144,7 @@ The `gateway-launch` artifact renders a wrapper from a template:
 
 - darwin: `~/.config/boot-slapper/claude-gw.zsh` + one guarded `source` line in `~/.zshrc` (the artifact owns exactly that line).
 - win32: a `claude-gw` function in `$PROFILE` reading PasswordVault, plus `claude-gw.cmd` so it works from Git Bash and cmd.
-- Both set `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `MECP_DEVICE_TOKEN`, `DISABLE_TELEMETRY=1`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`; no `ANTHROPIC_MODEL` pin; pass `--mcp-config ~/.claude/mcp/gateway.json`; never `--strict-mcp-config` (project `.mcp.json` servers must survive).
+- Both set `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `MECP_DEVICE_TOKEN`, `DISABLE_TELEMETRY=1`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, `ENABLE_PROMPT_CACHING_1H=1` (1h prompt-cache TTL instead of the API-key default 5m; added 2026-10-22, verified through the gateway); no `ANTHROPIC_MODEL` pin; pass `--mcp-config ~/.claude/mcp/gateway.json`; never `--strict-mcp-config` (project `.mcp.json` servers must survive).
 - The template switches on `provider`; `gateway.json` stays a tracked, secret-free dotclaude file.
 
 ### Deliberately manual
