@@ -18,10 +18,13 @@ claude-gw() {
     print -u2 "claude-gw: no MeCP device token in Keychain — mecp tools will 401. Run: bs secrets set mecp-device-token"
   fi
   # No ANTHROPIC_MODEL pin: let the gateway serve its default; pass --model explicitly when needed.
+  # ENABLE_PROMPT_CACHING_1H: an API key defaults to the 5m cache TTL; this lifts main thread and
+  # subagents to 1h (the gateway honors it without the beta header the line above suppresses).
   ANTHROPIC_BASE_URL="${o.baseUrl}" \\
   ANTHROPIC_AUTH_TOKEN="$gw_token" \\
   CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 \\
   DISABLE_TELEMETRY=1 \\
+  ENABLE_PROMPT_CACHING_1H=1 \\
   MECP_DEVICE_TOKEN="$mecp_token" \\
   command claude --mcp-config "${homeRel(o.mcpBundle, o.home)}" "$@"
 }
