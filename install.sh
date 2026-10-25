@@ -2,12 +2,17 @@
 # install.sh — boot-slapper fresh-box shim (macOS; Linux prints what to install)
 #   curl -fsSL https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.sh | bash
 #   curl -fsSL …/install.sh | bash -s -- --auto        # args go to `bs onboard`
-# Ensures node >= 22.5, clones or fast-forwards $BOOT_SLAPPER_DIR (default ~/projects/boot-slapper),
+# Ensures node >= 22.5, clones or fast-forwards $BOOT_SLAPPER_DIR (default ~/projects/boot-slapper, or an existing ~/Documents/Claude/projects/boot-slapper when that is absent),
 # builds, then execs `bs onboard`. Idempotent. Windows: install.ps1.
 set -euo pipefail
 
 REPO_URL="https://github.com/merpuya/boot-slapper.git"
+# Checkout probe order (same as the dotclaude hooks): ~/projects first, then ~/Documents/Claude/projects;
+# with neither present a fresh clone lands in ~/projects. BOOT_SLAPPER_DIR overrides all of it.
 DIR="${BOOT_SLAPPER_DIR:-$HOME/projects/boot-slapper}"
+if [ -z "${BOOT_SLAPPER_DIR:-}" ] && [ ! -d "$DIR/.git" ] && [ -d "$HOME/Documents/Claude/projects/boot-slapper/.git" ]; then
+  DIR="$HOME/Documents/Claude/projects/boot-slapper"
+fi
 
 say() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }

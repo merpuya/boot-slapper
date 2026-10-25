@@ -63,9 +63,17 @@ interface Facts {
   mappable: Candidate[];          // unmapped with a guess that is not already a mapping key — the only ones apply adds headlessly
 }
 
+/** Repo roots in probe order, same as the dotclaude memory-auto-sync hook: ~/projects first (the fresh-clone target), then ~/Documents/Claude/projects. */
+export const SYNC_REPO_PROBES = [["projects", "claude-memory-sync"], ["Documents", "Claude", "projects", "claude-memory-sync"]] as const;
+
+async function syncRepoDir(io: Io, env: Ctx["env"]): Promise<string> {
+  for (const p of SYNC_REPO_PROBES) { const d = pj(env.os, env.home, ...p); if (await io.isDir(pj(env.os, d, ".git"))) return d; }
+  return pj(env.os, env.home, ...SYNC_REPO_PROBES[0]);
+}
+
 async function facts(ctx: Ctx): Promise<Facts> {
   const { io, env } = ctx; const o = ctx.opts as unknown as Opts;
-  const repoDir = o.dir ?? pj(env.os, env.home, "projects", "claude-memory-sync");
+  const repoDir = o.dir ?? (await syncRepoDir(io, env));
   const f: Facts = { repoDir, repoPresent: await io.isDir(pj(env.os, repoDir, ".git")), scriptsMissing: [], configPath: pj(env.os, repoDir, "devices", `${env.label}.json`), config: null, known: [], onDisk: [], unmapped: [], mappable: [] };
   for (const s of HOOK_SCRIPTS) if (!(await io.exists(pj(env.os, env.claudeDir, "scripts", s)))) f.scriptsMissing.push(s);
   const projects = pj(env.os, env.claudeDir, "projects");

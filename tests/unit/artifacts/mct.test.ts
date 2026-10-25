@@ -101,4 +101,16 @@ describe("mct", () => {
     const { ctx } = await makeCtx({ opts: { ...opts, deviceIds: { BOX: "s" } }, path: tools, env: { USER: "aca34", DEVICE_LABEL: "BOX" }, dirs: [DIR, `${DIR}/dist/hooks`], files: { [BUILT]: "", "/h/.mct/config.json": "{nope" } });
     await expect(mct.apply(ctx, [{ id: "mct.activate", title: "", secret: { service: "mct-sync-token", account: "aca34" } }])).rejects.toThrow(/not valid JSON/);
   });
+
+  it("documents-repo-root probe order: only the Documents root resolves there; both roots keep ~/projects; neither names the fresh-clone target", async () => {
+    const DOCS = "/h/Documents/Claude/projects/me-count-token";
+    const probe = async (init: Parameters<typeof makeCtx>[0]) => { const { ctx, io } = await makeCtx({ opts, path: tools, env: { USER: "aca34", DEVICE_LABEL: "BOX" }, ...init }); fakes(io); return { ctx, state: await mct.detect(ctx) }; };
+    const onlyDocs = await probe({ dirs: [DOCS], files: { [`${DOCS}/dist/hooks/session-start.js`]: "", "/h/.mct/config.json": "{}" } });
+    expect(onlyDocs.state).toEqual({ kind: "present" });
+    expect((await mct.verify(onlyDocs.ctx))[0]).toEqual({ id: "status", status: "ok", message: "mct doctor passes" });
+    const both = await probe({ dirs: [DIR, DOCS], files: { "/h/.mct/config.json": "{}" } });   // ~/projects checkout is unbuilt, the Documents one is built: ~/projects must still win
+    expect(both.state).toEqual({ kind: "drifted", details: ["dist/ not built — will npm install && npm run build"] });
+    const neither = await probe({ files: { "/h/.mct/config.json": "{}" } });
+    expect(neither.state).toMatchObject({ kind: "absent", details: expect.arrayContaining(["no me-count-token checkout — will clone to ~/projects/me-count-token"]) });
+  });
 });
