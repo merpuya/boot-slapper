@@ -11,7 +11,7 @@ const step = (s: string, title: string, extra: Partial<Step> = {}): Step => ({ i
 interface Opts { sshUrl: string; httpsUrl: string; syncUrl: string; deviceIds?: Record<string, string> }
 
 /** Mirrors HOOK_CHECKOUT_PROBES in me-count-token/src/hook-wrapper.ts — a fleet contract; the first entry is where a fresh clone lands. */
-export const CHECKOUT_PROBES = ["projects/me-count-token", "Claude/me-count-token"] as const;
+export const CHECKOUT_PROBES = ["projects/me-count-token", "Claude/me-count-token", "Documents/Claude/projects/me-count-token"] as const;
 export const D = { clone: "no me-count-token checkout", build: "dist/ not built", activate: "mct not activated" } as const;
 
 const nodeOk = (v: { major: number; minor: number } | null) => !!v && (v.major > 22 || (v.major === 22 && v.minor >= 5));

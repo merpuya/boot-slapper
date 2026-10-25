@@ -175,4 +175,22 @@ describe("project-memory", () => {
     await projectMemory.detect(ctx); await projectMemory.verify(ctx);
     expect(io.writes).toEqual([]);
   });
+
+  it("documents-repo-root probe order: only the Documents root resolves there; both roots keep ~/projects; neither names the fresh-clone target", async () => {
+    const DOCS = "/h/Documents/Claude/projects/claude-memory-sync";
+    const docsDirs = [`${DOCS}/.git`, `${DOCS}/projects/mecp`, `${DOCS}/devices`];
+    const { ctx: onlyDocs, io: ioDocs } = await makeCtx({ opts, env: { DEVICE_LABEL: "BOX" }, dirs: [...docsDirs, ...memDirs], files: scripts });
+    fakes(ioDocs);
+    const sDocs = await projectMemory.detect(onlyDocs);
+    expect(sDocs.kind).toBe("drifted");
+    expect(sDocs.details?.[0]).toBe(`no device config for 'BOX' — will build devices/BOX.json`);
+    expect((await projectMemory.verify(onlyDocs))[0]).toEqual({ id: "repo", status: "ok", message: "claude-memory-sync repo present" });
+    const { ctx: both, io: ioBoth } = await makeCtx({ opts, env: { DEVICE_LABEL: "BOX" }, dirs: [...repoDirs, ...docsDirs, ...memDirs], files: { ...scripts, [`${REPO}/devices/BOX.json`]: "{\"device_label\":\"BOX\",\"platform\":\"darwin\",\"mappings\":{}}\n" } });
+    fakes(ioBoth);
+    const sBoth = await projectMemory.detect(both);
+    expect(sBoth.details?.join()).toContain("-Users-aca34-projects-mecp");    // read ~/projects' config + repo, not the Documents copy (which has no BOX.json)
+    expect(sBoth.details?.join()).not.toContain("no device config");
+    const { ctx: none } = await makeCtx({ opts, env: { DEVICE_LABEL: "BOX" }, dirs: memDirs, files: scripts });
+    expect(await projectMemory.detect(none)).toEqual({ kind: "absent", details: [`claude-memory-sync repo absent — will clone to ${REPO}`] });
+  });
 });
