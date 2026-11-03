@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sh = () => readFileSync("install.sh", "utf8");
@@ -31,5 +33,56 @@ describe("install shims", () => {
       const r = spawnSync("powershell", ["-NoProfile", "-Command", "$null = [scriptblock]::Create((Get-Content -Raw install.ps1)); exit 0"], { encoding: "utf8" });
       expect(r.status, r.stderr).toBe(0);
     }
+  });
+  it("install.ps1: probes the Documents root like install.sh (static, every OS)", () => {
+    const s = ps1();
+    expect(s).toContain("Documents\\Claude\\projects\\boot-slapper");
+    expect(s).toContain("$env:USERPROFILE");
+    expect(s).toContain("$env:BOOT_SLAPPER_DIR");
+  });
+  // pwsh/powershell rows: only the windows-latest CI job runs these. The probe block is lifted out of install.ps1 verbatim
+  // (from the `$Dir = if` line to the first closing-brace line after it) so no install step (winget/git/npm) runs.
+  const dirProbe = () => {
+    const lines = ps1().split("\n");
+    const start = lines.findIndex((l) => l.includes("$Dir = if"));
+    const end = lines.findIndex((l, i) => i > start && /^\s*\}\s*$/.test(l));
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return lines.slice(start, end + 1).join("\n");
+  };
+  const resolveDir = (layout: { projects?: boolean; documents?: boolean; override?: string }) => {
+    const home = mkdtempSync(join(tmpdir(), "bs-ps1-"));
+    try {
+      if (layout.projects) mkdirSync(join(home, "projects", "boot-slapper", ".git"), { recursive: true });
+      if (layout.documents) mkdirSync(join(home, "Documents", "Claude", "projects", "boot-slapper", ".git"), { recursive: true });
+      const env: Record<string, string> = { ...(process.env as Record<string, string>), USERPROFILE: home };
+      delete env.BOOT_SLAPPER_DIR;
+      if (layout.override) env.BOOT_SLAPPER_DIR = layout.override.replace("<home>", home);
+      // -EncodedCommand (base64 UTF-16LE) sidesteps Windows argv quoting of the embedded double quotes.
+      const script = Buffer.from(`$ErrorActionPreference = 'Stop'\n${dirProbe()}\nWrite-Output $Dir`, "utf16le").toString("base64");
+      const r = spawnSync("powershell", ["-NoProfile", "-EncodedCommand", script], { encoding: "utf8", env });
+      expect(r.status, r.stderr).toBe(0);
+      return { dir: r.stdout.trim(), home };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  describe.skipIf(process.platform !== "win32")("install.ps1 checkout-root probe (win32 only)", () => {
+    it("both roots present: ~\\projects wins", { timeout: 60_000 }, () => {
+      const { dir, home } = resolveDir({ projects: true, documents: true });
+      expect(dir).toBe(join(home, "projects", "boot-slapper"));
+    });
+    it("only the Documents root present: it is used", { timeout: 60_000 }, () => {
+      const { dir, home } = resolveDir({ documents: true });
+      expect(dir).toBe(join(home, "Documents", "Claude", "projects", "boot-slapper"));
+    });
+    it("neither present: the default ~\\projects path", { timeout: 60_000 }, () => {
+      const { dir, home } = resolveDir({});
+      expect(dir).toBe(join(home, "projects", "boot-slapper"));
+    });
+    it("BOOT_SLAPPER_DIR wins even when only the Documents root exists", { timeout: 60_000 }, () => {
+      const { dir, home } = resolveDir({ documents: true, override: join("<home>", "elsewhere", "boot-slapper") });
+      expect(dir).toBe(join(home, "elsewhere", "boot-slapper"));
+    });
   });
 });

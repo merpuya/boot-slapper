@@ -3,7 +3,9 @@
 #   bootstrap.sh            → bs onboard (Ink screens in a terminal; --auto for headless)
 #   bootstrap.sh --doctor   → bs doctor --headless
 set -euo pipefail
-DIR="${BOOT_SLAPPER_DIR:-$HOME/projects/boot-slapper}"
+# Checkout root, same order as install.sh: ~/projects, else ~/Documents/Claude/projects when only that one exists; BOOT_SLAPPER_DIR wins.
+DIR="${BOOT_SLAPPER_DIR:-$HOME/projects/boot-slapper}"; DOCS="$HOME/Documents/Claude/projects/boot-slapper"
+[[ -z "${BOOT_SLAPPER_DIR:-}" && ! -d "$DIR/.git" && -d "$DOCS/.git" ]] && DIR="$DOCS"
 if [[ -f "$DIR/dist/cli.js" ]]; then
   if [[ "${1:-}" == "--doctor" ]]; then exec node "$DIR/dist/cli.js" doctor --headless; fi
   exec node "$DIR/dist/cli.js" onboard "$@"
