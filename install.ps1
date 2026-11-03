@@ -3,7 +3,7 @@ install.ps1 — boot-slapper fresh-box shim (Windows)
   irm https://raw.githubusercontent.com/merpuya/boot-slapper/main/install.ps1 | iex
 Ensures node >= 22.5 and git (winget), clones or fast-forwards $env:BOOT_SLAPPER_DIR (default ~\projects\boot-slapper, or an existing ~\Documents\Claude\projects\boot-slapper when that is absent),
 builds, then runs `bs onboard`. Idempotent. `iex` cannot pass arguments: for flags run
-  node "$HOME\projects\boot-slapper\dist\cli.js" onboard --auto
+  node "$env:USERPROFILE\projects\boot-slapper\dist\cli.js" onboard --auto   (or the Documents\Claude\projects root when that is the checkout)
 Under `irm … | iex` this runs in the caller's session: the script never exits that session, and it throws on a non-zero `bs onboard`.
 #>
 $PrevEAP = $ErrorActionPreference
