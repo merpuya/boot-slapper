@@ -55,11 +55,15 @@ async function facts(ctx: Ctx): Promise<Facts> {
   if (f.exists) {
     f.checkout = await isCheckout(io, dir);
     if (f.checkout) {
-      const st = await git(io, dir, ["status", "--porcelain"]);
-      for (const line of st.stdout.split(/\r?\n/)) {
+      // -z: NUL-terminated entries with the path verbatim. Without it git C-quotes a path holding a space or a non-ASCII byte,
+      // and the quoted string is not a path `git checkout --` can find (adopt left "…/sp ace.md" unrestored, 2026-11-15).
+      const entries = (await git(io, dir, ["status", "--porcelain", "-z"])).stdout.split("\0");
+      for (let i = 0; i < entries.length; i++) {
+        const line = entries[i];
         if (!line) continue;
         const code = line.slice(0, 2);
-        const file = line.slice(3).split(" -> ").pop()!;             // renames: report the new name
+        const file = line.slice(3);                                  // renames: this is the new name…
+        if (/[RC]/.test(code)) i++;                                  // …and the old one follows as its own entry
         // Untracked paths are not drift the pull step can act on, but verify's "clean vs origin" counts them like
         // bootstrap.sh --doctor does: a fresh clone would lose them (e.g. handoff notes not yet committed). Ignored (!!) never show.
         if (code === "??") { f.untracked.push(file); continue; }
