@@ -9,6 +9,17 @@ const canonical = readFileSync("tests/fixtures/canonical-hooks.sample.json", "ut
 const opts = { sshUrl: "git@github.com:merpuya/dotclaude.git", httpsUrl: "https://github.com/merpuya/dotclaude.git" };
 const HEAD = "abc123\n";
 
+/** Render fixture lines ("XY path", "XY old -> new", paths unquoted) the way `git status --porcelain` does: without -z a path
+ *  holding a space is C-quoted; with -z entries are NUL-terminated, never quoted, and a rename is "XY new\0old\0". */
+function porcelainOut(fixture: string, z: boolean): string {
+  const q = (p: string) => (p.includes(" ") ? `"${p}"` : p);
+  return fixture.split("\n").filter(Boolean).map((line) => {
+    const code = line.slice(0, 2); const parts = line.slice(3).split(" -> ");
+    if (z) return parts.length === 2 ? `${code} ${parts[1]}\0${parts[0]}\0` : `${code} ${parts[0]}\0`;
+    return `${code} ${parts.map(q).join(" -> ")}\n`;
+  }).join("");
+}
+
 /** A git fake: `state` decides what rev-parse/status/ls-remote answer. */
 function gitFake(io: FakeIo, state: { checkout: boolean; porcelain?: string; remoteHead?: string }) {
   io.on((c, a) => c === "ssh", () => ({ code: 1, stdout: "", stderr: "Hi merpuya! You've successfully authenticated" }));
@@ -16,7 +27,7 @@ function gitFake(io: FakeIo, state: { checkout: boolean; porcelain?: string; rem
     const sub = args[args.indexOf("-C") >= 0 ? 2 : 0];
     if (sub === "rev-parse" && args.includes("--show-toplevel")) return state.checkout ? { code: 0, stdout: "/h/.claude\n", stderr: "" } : { code: 128, stdout: "", stderr: "not a git repository" };
     if (sub === "rev-parse") return { code: 0, stdout: HEAD, stderr: "" };
-    if (sub === "status") return { code: 0, stdout: state.porcelain ?? "", stderr: "" };
+    if (sub === "status") return { code: 0, stdout: porcelainOut(state.porcelain ?? "", args.includes("-z")), stderr: "" };
     if (sub === "ls-remote") return { code: 0, stdout: `${state.remoteHead ?? "abc123"}\trefs/heads/main\n`, stderr: "" };
     if (sub === "clone") { io.dirs.add("/h/.claude"); state.checkout = true; return { code: 0, stdout: "", stderr: "" }; }
     if (sub === "init") { state.checkout = true; return { code: 0, stdout: "", stderr: "" }; }
@@ -65,6 +76,17 @@ describe("claude-config", () => {
     expect(gitArgs.some((a) => a.startsWith("checkout") && a.includes("CLAUDE.md"))).toBe(false); // never clobber the modified one
     expect(io.files.get("/h/.claude/CLAUDE.md")).toBe("local edits\n");
     expect(events.find((e) => e.type === "note" && /1 tracked file\(s\) .* differ/.test(e.message))).toBeTruthy();
+  });
+
+  // 2026-11-15, pa-book-pro: adopt left dotclaude's "…/link-percent/sp ace.md" fixture unrestored. Plain --porcelain C-quotes a
+  // path with a space, so the quoted string went to `git checkout --` and matched nothing (exit ignored).
+  it("adopt restores a missing tracked file whose path has a space, and a rename reports the new name", async () => {
+    const { ctx, io } = await makeCtx({ opts, dirs: ["/h/.claude"], files: tracked() });
+    gitFake(io, { checkout: false, porcelain: " D scripts/fixtures/sp ace.md\nR  old name.md -> new name.md\n" });
+    await claudeConfig.apply(ctx, [claudeConfig.plan(ctx, await claudeConfig.detect(ctx))[0]]);
+    expect(io.calls.filter((c) => c.cmd === "git" && c.args.includes("checkout")).map((c) => c.args.slice(c.args.indexOf("checkout")))).toEqual([["checkout", "-q", "--", "scripts/fixtures/sp ace.md"]]);
+    const d = await claudeConfig.detect(ctx);
+    expect(d.details?.find((x) => x.includes("tracked file(s) differ"))).toContain("NOT overwriting: new name.md");
   });
 
   it("checkout behind origin plans a pull; tracked modifications are reported, not fixed", async () => {
