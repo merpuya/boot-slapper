@@ -55,6 +55,11 @@ export class RealIo implements Io {
       // A process tree on Windows (npm → node → …) survives a plain kill of its root.
       if (this.platform === "win32" && child.pid !== undefined) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
       else child.kill("SIGTERM");
+      // SIGTERM reaches only the direct child. A descendant that inherited its pipes keeps them referenced, and the CLI now ends by
+      // letting the event loop drain (so a large stdout is not truncated), so it would wait for that descendant. Release our ends
+      // so a cancelled run exits once the child itself is gone, whatever its descendants do. (exec still resolves on 'close',
+      // which a destroyed stream no longer delays; unref'ing the child instead would let the loop end with exec unresolved and exit 0.)
+      child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy();
     }
     this.live.clear();
   }

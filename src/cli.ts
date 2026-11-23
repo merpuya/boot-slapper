@@ -180,5 +180,6 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
 }
 
 if (isMainModule(process.argv[1], import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e); process.exit(1); });
+  // Set exitCode and let the loop drain instead of process.exit(): exiting right after a large write truncates a piped stdout at the 64 KiB buffer.
+  main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e); process.exitCode = 1; });
 }
