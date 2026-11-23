@@ -156,6 +156,8 @@ export class FakeIo implements Io {
   files: Map<string, string>;
   dirs: Set<string>;
   modes = new Map<string, number>();
+  /** Modes passed to `mkdirp`, by path — a directory a step creates is observable the way a written file's mode is. */
+  dirModes = new Map<string, number>();
   /** Symlinks, junctions and `subst` drives: link path → the path it points at. Only `realpath` follows them. */
   links = new Map<string, string>();
   calls: ExecCall[] = [];
@@ -229,7 +231,10 @@ export class FakeIo implements Io {
     return (await this.realpath(p)) !== null ? { isSymbolicLink: false } : null;
   }
   async readlink(p: string) { return (await this.linkAt(p))?.[1] ?? null; }
-  async mkdirp(p: string) { this.dirs.add(p); this.addParents(p + this.pp.sep + "x"); }
+  async mkdirp(p: string, opts?: { mode?: number }) {
+    if (opts?.mode !== undefined && !this.dirs.has(p)) this.dirModes.set(p, opts.mode);   // like mkdir(2): an existing directory keeps its mode
+    this.dirs.add(p); this.addParents(p + this.pp.sep + "x");
+  }
   async readdir(p: string) {
     if (!this.dirs.has(p)) return [];
     const out = new Set<string>();
