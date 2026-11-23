@@ -78,6 +78,23 @@ describe("seedSettings: env sub-key merge (add-only)", () => {
   });
 });
 
+describe("seedSettings: dotclaude applier parity edges", () => {
+  it("an empty-array template env is an empty env (the applier reads `env or {}`): nothing to merge, no refusal", () => {
+    const r = seedSettings({ env: { A: "1" }, theme: "x" }, { env: [], theme: "x" });
+    expect(r.envAdded).toEqual([]);
+    expect(r.next.env).toEqual({ A: "1" });
+  });
+  it("a non-empty array template env is still refused", () => {
+    expect(() => seedSettings({ env: {} }, { env: ["x"] })).toThrow(SettingsRefusal);
+  });
+  it("a non-string template allow entry is appended like any other (the applier appends whatever the template lists)", () => {
+    const obj = { tool: "x" };
+    const r = seedSettings({ permissions: { allow: ["a"] } }, { permissions: { allow: ["a", obj, 7] } });
+    expect(r.allowAdded).toEqual([obj, 7]);
+    expect(r.next.permissions).toEqual({ allow: ["a", obj, 7] });
+  });
+});
+
 describe("seedSettings: permissions.allow union", () => {
   const E1 = "mcp__claude_ai_MeCP__bootstrap_context";
   const tmpl = { permissions: { defaultMode: "auto", allow: [E1] }, theme: "auto" };

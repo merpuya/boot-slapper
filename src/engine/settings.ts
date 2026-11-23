@@ -18,7 +18,7 @@ export interface SeedResult {
   /** Template `env` sub-keys missing from an EXISTING settings.json env block (add-only; an absent env block is `added` whole instead). */
   envAdded: string[];
   /** Template `permissions.allow` entries missing from an EXISTING settings.json permissions block (union; never removes). */
-  allowAdded: string[];
+  allowAdded: unknown[];
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -39,16 +39,19 @@ export function seedSettings(settings: Record<string, unknown> | null, template:
 
   const tmplPerms = isObject(template.permissions) ? template.permissions : {};
   const tmplAllow = Array.isArray(tmplPerms.allow) ? (tmplPerms.allow as unknown[]) : [];
-  let allowAdded: string[] = [];
+  let allowAdded: unknown[] = [];
   if (tmplAllow.length && "permissions" in settings) {
     const perms = settings.permissions;
     if (!isObject(perms) || ("allow" in perms && !Array.isArray(perms.allow))) throw new SettingsRefusal("refusing: settings.json permissions / permissions.allow is not an object / list — fix by hand");
     const have = (perms.allow ?? []) as unknown[];
-    allowAdded = tmplAllow.filter((e): e is string => typeof e === "string" && !have.some((h) => isDeepStrictEqual(h, e)));
+    allowAdded = tmplAllow.filter((e) => !have.some((h) => isDeepStrictEqual(h, e)));  // any entry type: the applier appends whatever the template lists
   }
 
-  if (template.env !== undefined && template.env !== null && !isObject(template.env)) throw new SettingsRefusal("refusing: template env is not an object");
-  const tmplEnv = (template.env ?? {}) as Record<string, unknown>;
+  // The applier reads `template.get("env") or {}`: any falsy value (null, false, 0, "", []) is an empty env.
+  const rawEnv = template.env;
+  const envEmpty = !rawEnv || (Array.isArray(rawEnv) && rawEnv.length === 0);
+  if (!envEmpty && !isObject(rawEnv)) throw new SettingsRefusal("refusing: template env is not an object");
+  const tmplEnv = (envEmpty ? {} : rawEnv) as Record<string, unknown>;
   let envAdded: string[] = [];
   if (Object.keys(tmplEnv).length && "env" in settings) {
     if (!isObject(settings.env)) throw new SettingsRefusal("refusing: settings.json env is not an object — fix by hand");

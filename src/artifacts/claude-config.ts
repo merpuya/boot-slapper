@@ -66,9 +66,12 @@ async function rememberFact(ctx: Ctx): Promise<RememberFact> {
   }
 }
 
+/** A template allow entry for a message: strings as-is, anything else as JSON. */
+const show = (e: unknown) => (typeof e === "string" ? e : JSON.stringify(e));
+
 interface Facts {
   exists: boolean; checkout: boolean; modified: string[]; deleted: string[]; untracked: string[]; behind: boolean;
-  settings: Record<string, unknown> | null | "invalid"; templateAdded: string[]; templateStale: string[]; templateEnv: string[]; templateAllow: string[];
+  settings: Record<string, unknown> | null | "invalid"; templateAdded: string[]; templateStale: string[]; templateEnv: string[]; templateAllow: unknown[];
   /** seedSettings refused (non-object env / permissions, non-list allow): fix by hand, so no settings step is planned. */
   templateRefusal: string | null; hooksDiffer: boolean; remember: RememberFact;
 }
@@ -146,7 +149,7 @@ export const claudeConfig: Artifact = {
     if (f.templateRefusal) details.push(`settings template refused: ${f.templateRefusal}`);
     else if (f.templateAdded.length || f.templateStale.length || f.templateEnv.length || f.templateAllow.length) {
       details.push(`settings template drift — missing: [${f.templateAdded.join(", ")}] managed drift: [${f.templateStale.join(", ")}]`
-        + (f.templateEnv.length ? ` env: [${f.templateEnv.join(", ")}]` : "") + (f.templateAllow.length ? ` allow: [${f.templateAllow.join(", ")}]` : ""));
+        + (f.templateEnv.length ? ` env: [${f.templateEnv.join(", ")}]` : "") + (f.templateAllow.length ? ` allow: [${f.templateAllow.map(show).join(", ")}]` : ""));
     }
     if (f.hooksDiffer) details.push("hooks block differs from rendered canonical-hooks.json");
     details.push(...remember);
@@ -253,7 +256,7 @@ export const claudeConfig: Artifact = {
     if (f.settings === null || f.settings === "invalid") { out.push({ id: "settings-valid", status: "error", message: "settings.json missing or invalid" }, rememberCheck()); return out; }
     out.push({ id: "settings-valid", status: "ok", message: "settings.json is valid JSON" });
     out.push(f.hooksDiffer ? { id: "hooks-match", status: "error", message: "hooks block differs from canonical-hooks.json — run bs onboard" } : { id: "hooks-match", status: "ok", message: "hooks match canonical-hooks.json" });
-    const drift = [...f.templateAdded, ...f.templateStale, ...f.templateEnv.map((k) => `env.${k}`), ...f.templateAllow.map((e) => `permissions.allow ${e}`)];
+    const drift = [...f.templateAdded, ...f.templateStale, ...f.templateEnv.map((k) => `env.${k}`), ...f.templateAllow.map((e) => `permissions.allow ${show(e)}`)];
     if (f.templateRefusal) out.push({ id: "template-keys", status: "error", message: `settings template drift: ${f.templateRefusal}` });
     else out.push(drift.length ? { id: "template-keys", status: "error", message: `settings template drift: ${drift.join(", ")} — run bs onboard` } : { id: "template-keys", status: "ok", message: "settings.json carries every template key (managed keys in sync)" });
     out.push(rememberCheck());
