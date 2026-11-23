@@ -45,7 +45,11 @@ type RememberFact = { kind: "in-sync" } | { kind: "drift"; message: string } | {
 async function rememberFact(ctx: Ctx): Promise<RememberFact> {
   const p = rememberPath(ctx);
   if ((await ctx.io.lstat(p))?.isSymbolicLink) return { kind: "refused", message: `refusing: ${REMEMBER_LABEL} is a symlink — edit it by hand` };
-  const raw = await ctx.io.readFile(p);
+  // An unreadable file (EACCES) or a directory (EISDIR) is a refusal too: this runs inside facts(), so a throw would block the whole artifact
+  // (checkout, settings, and every dependent) over an unrelated plugin's config.
+  let raw: string | null;
+  try { raw = await ctx.io.readFile(p); }
+  catch (e) { return { kind: "refused", message: `refusing: ${REMEMBER_LABEL} cannot be read (${(e as Error).message}) — fix by hand` }; }
   let cfg: Record<string, unknown> | null = null;
   if (raw !== null) {
     let parsed: unknown;

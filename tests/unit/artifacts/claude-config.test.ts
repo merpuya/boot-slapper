@@ -359,6 +359,18 @@ describe("claude-config: ~/.remember/config.json features.plugin_promos", () => 
     expect(io.files.get("/h/elsewhere.json")).toBe("{}\n"); expect(io.writes).toEqual([]);
   });
 
+  it.each([["EACCES"], ["EISDIR"]])("a config.json that cannot be read (%s) is a remember refusal: the checkout and settings checks still run and the rest of the plan survives", async (code) => {
+    const { ctx, io } = await box(REMEMBER_OK);
+    const read = io.readFile.bind(io);
+    io.readFile = async (p: string) => { if (p === REMEMBER) throw Object.assign(new Error(`${code}: cannot read ${p}`), { code }); return read(p); };
+    const s = await claudeConfig.detect(ctx);
+    expect(s.kind).toBe("drifted");
+    expect((s as { details: string[] }).details.join("\n")).toMatch(new RegExp(`remember config refused: .*${code}`));
+    expect(claudeConfig.plan(ctx, s).map((x) => x.id)).not.toContain("claude-config.remember");
+    const checks = await claudeConfig.verify(ctx);
+    expect(checks.map((c) => [c.id, c.status])).toEqual([["checkout", "ok"], ["clean", "ok"], ["settings-valid", "ok"], ["hooks-match", "ok"], ["template-keys", "ok"], ["remember-config", "error"]]);
+  });
+
   it("a fresh box (no ~/.claude, no ~/.remember) plans the remember step after the clone/seed steps", async () => {
     const { ctx, io } = await makeCtx({ opts, path: { node: "/usr/local/bin/node" } });
     gitFake(io, { checkout: false });
